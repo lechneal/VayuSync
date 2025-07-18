@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      This is the default state. Since we don't define any other states
+      (like android:state_pressed="true"), this drawable will be used for ALL states.
+      This is the simplest way to satisfy the requirement.
+    -->
+    <item android:drawable="@drawable/thumb_shape" />
+
+</selector>
