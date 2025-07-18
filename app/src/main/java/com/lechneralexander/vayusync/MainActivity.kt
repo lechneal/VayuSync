@@ -43,6 +43,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         private const val KEY_FOLDER_URI = "folderUri"
     }
 
+    private val SUPPORTED_MIME_TYPES = arrayOf("image/jpeg", "image/jpg", "video/quicktime")
+
     private lateinit var recyclerView: RecyclerView
     private lateinit var selectFolderButton: Button
     private lateinit var adapter: ImageAdapter
@@ -156,74 +158,79 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    // --- Updated to take a folder Uri ---
-    private fun loadImages(folderUri: Uri) {
-        scope.launch(Dispatchers.IO) {
-            val relativePath = getRelativePathFromUri(folderUri)
-            if (relativePath == null) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Could not find folder path", Toast.LENGTH_SHORT).show()
-                }
-                return@launch
-            }
-
-            // --- Pass the relative path to the MediaStore query ---
-            val uris = loadImagesFromMediaStore(relativePath)
-            withContext(Dispatchers.Main) {
-                imageUris.clear()
-                imageUris.addAll(uris)
-                adapter.notifyDataSetChanged()
-                if (imageUris.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "No images found in the selected folder.", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    }
-
-    // --- Helper to convert a SAF tree URI to a MediaStore relative path ---
-    private fun getRelativePathFromUri(treeUri: Uri): String? {
-        val docId = DocumentsContract.getTreeDocumentId(treeUri)
-        val split = docId.split(":")
-        return if (split.size > 1) {
-            "${split[1]}/" // The path needs to end with a slash for MediaStore
-        } else {
-            null
-        }
-    }
-
-    // --- Updated to return a list of Uris and filter by path ---
-    private fun loadImagesFromMediaStore(relativePath: String): List<Uri> {
+    private fun listImageFilesFromUri(treeUri: Uri): List<Uri> {
+        val context = this
         val foundUris = mutableListOf<Uri>()
-        val projection = arrayOf(
-            MediaStore.Images.Media._ID,
-            MediaStore.Images.Media.DISPLAY_NAME,
-            MediaStore.Images.Media.RELATIVE_PATH
-        )
 
-        // --- The key change: Filter by RELATIVE_PATH with a wildcard to include subfolders ---
-        val selection = "${MediaStore.Images.Media.MIME_TYPE} IN (?, ?) AND ${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
-        val selectionArgs = arrayOf("image/jpeg", "image/jpg", "$relativePath%")
-        val sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} DESC"
+        // We need a stack to do a breadth-first or depth-first search.
+        val directoryStack = ArrayDeque<Uri>()
 
-        contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            selection,
-            selectionArgs,
-            sortOrder
-        )?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+        // Convert the base tree URI to a document URI that we can query for children
+        val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+        val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
+        directoryStack.add(rootDocUri)
 
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idColumn)
-                // --- Build the content URI for each image ---
-                val contentUri = ContentUris.withAppendedId(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id
-                )
-                foundUris.add(contentUri)
+        // Process every directory until the stack is empty
+        while (directoryStack.isNotEmpty()) {
+            val currentDirUri = directoryStack.removeFirst()
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                treeUri,
+                DocumentsContract.getDocumentId(currentDirUri)
+            )
+
+            // Query the children of the current directory
+            context.contentResolver.query(
+                childrenUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_MIME_TYPE),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val docId = cursor.getString(0)
+                    val mimeType = cursor.getString(1)
+
+                    // Construct the URI for the found item
+                    val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+
+                    if (mimeType != null) {
+                        when {
+                            // If it's a directory, add it to the stack to be processed
+                            mimeType == DocumentsContract.Document.MIME_TYPE_DIR -> {
+                                directoryStack.add(docUri)
+                            }
+                            // If it's an image, add it to our results list
+                            SUPPORTED_MIME_TYPES.contains(mimeType) -> {
+                                foundUris.add(docUri)
+                            }
+                        }
+                    }
+                }
             }
         }
         return foundUris
+    }
+
+    private fun loadImages(folderUri: Uri) {
+        scope.launch(Dispatchers.IO) {
+            val uris = listImageFilesFromUri(folderUri)
+
+            // Sort the results if desired (optional)
+            // Note: Sorting by name is simpler than by date without MediaStore
+            val sortedUris = uris.sortedBy { it.toString() }.reversed()
+
+            withContext(Dispatchers.Main) {
+                imageUris.clear()
+                imageUris.addAll(sortedUris)
+                adapter.notifyDataSetChanged()
+                if (imageUris.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "No images found in the selected folder.", Toast.LENGTH_LONG).show()
+                } else {
+                    // Scroll to top after loading new folder
+                    recyclerView.scrollToPosition(0)
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -282,7 +289,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             private val imageView: ImageView = itemView.findViewById(R.id.imageView)
-            private val selectionOverlay: View = itemView.findViewById(R.id.selectionBadge)
+            private val selectionBadge: View = itemView.findViewById(R.id.selectionBadge)
 
             init {
                 itemView.setOnClickListener {
@@ -303,7 +310,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             fun bind(imageUri: Uri, isSelected: Boolean) {
-                selectionOverlay.visibility = if (isSelected) View.VISIBLE else View.GONE
+                selectionBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
                 loadImage(imageUri)
             }
 

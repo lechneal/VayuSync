@@ -12,8 +12,8 @@ android {
         applicationId = "com.lechneralexander.vayusync"
         minSdk = 34
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -51,6 +51,7 @@ dependencies {
     implementation(libs.recyclerview)
     implementation(libs.androidx.appcompat)
     implementation("com.google.android.material:material:1.12.0")
+    implementation("io.coil-kt:coil:2.7.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
