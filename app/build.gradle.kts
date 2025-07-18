@@ -9,7 +9,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.externalstorageimageimporter"
+        applicationId = "com.lechneralexander.vayusync"
         minSdk = 34
         targetSdk = 36
         versionCode = 1

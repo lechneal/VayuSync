@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+
+    <!--
+      This uses your theme's primary color for the badge background.
+      It will automatically adapt to light/dark themes.
+    -->
+    <solid android:color="?attr/colorPrimary" />
+
+</shape>

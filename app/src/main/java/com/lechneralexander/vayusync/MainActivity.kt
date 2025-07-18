@@ -10,11 +10,16 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.OpenableColumns
+import android.view.ActionMode
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,7 +36,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), ActionMode.Callback {
     companion object {
         private const val PERMISSION_REQUEST_CODE = 100
         private const val PREFS_NAME = "VayuSyncPrefs"
@@ -48,24 +53,32 @@ class MainActivity : AppCompatActivity() {
     // --- Modern way to handle Activity results ---
     private lateinit var folderPickerLauncher: ActivityResultLauncher<Uri?>
 
+    // -- copy
+    private lateinit var copyProgressBar: ProgressBar
+    private lateinit var destFolderPickerLauncher: ActivityResultLauncher<Uri?>
+
+    // To manage the contextual action mode
+    private var actionMode: ActionMode? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        setupRecyclerView()
-        setupFolderPicker()
-
         val toolbar: Toolbar = findViewById(R.id.toolbar)
         setSupportActionBar(toolbar)
 
+        copyProgressBar = findViewById(R.id.copyProgressBar)
+
+        setupRecyclerView()
+        setupFolderPicker()
+        setupDestFolderPicker() // New launcher for destination
+
         selectFolderButton = findViewById(R.id.selectFolderButton)
         selectFolderButton.setOnClickListener {
-            // Launch the folder picker
             folderPickerLauncher.launch(null)
         }
 
         if (checkPermissions()) {
-            // Try to load images from a previously saved folder URI
             loadSavedFolder()
         } else {
             requestPermissions()
@@ -222,6 +235,37 @@ class MainActivity : AppCompatActivity() {
     inner class ImageAdapter(private val images: List<Uri>) :
         RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
+        private val selectedItems = mutableSetOf<Uri>()
+
+        fun getSelectedCount() = selectedItems.size
+        fun getSelectedItems(): List<Uri> = selectedItems.toList()
+
+        fun toggleSelection(position: Int) {
+            val uri = images[position]
+            if (selectedItems.contains(uri)) {
+                selectedItems.remove(uri)
+            } else {
+                selectedItems.add(uri)
+            }
+            notifyItemChanged(position)
+            actionMode?.invalidate() // Re-runs onPrepareActionMode to update title
+        }
+
+        fun clearSelections() {
+            val previouslySelected = selectedItems.toList()
+            selectedItems.clear()
+            previouslySelected.forEach { uri ->
+                val index = images.indexOf(uri)
+                if (index != -1) notifyItemChanged(index)
+            }
+        }
+
+        fun selectAll() {
+            images.forEach { selectedItems.add(it) }
+            notifyDataSetChanged()
+            actionMode?.invalidate()
+        }
+
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
             val view = LayoutInflater.from(parent.context)
                 .inflate(R.layout.item_image, parent, false)
@@ -230,13 +274,38 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val imageUri = images[position]
-            holder.loadImage(imageUri)
+            val isSelected = selectedItems.contains(imageUri)
+            holder.bind(imageUri, isSelected)
         }
 
         override fun getItemCount(): Int = images.size
 
         inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             private val imageView: ImageView = itemView.findViewById(R.id.imageView)
+            private val selectionOverlay: View = itemView.findViewById(R.id.selectionBadge)
+
+            init {
+                itemView.setOnClickListener {
+                    if (actionMode != null) {
+                        toggleSelection(bindingAdapterPosition)
+                    } else {
+                        // Handle normal click if needed (e.g., open image full screen)
+                    }
+                }
+
+                itemView.setOnLongClickListener {
+                    if (actionMode == null) {
+                        this@MainActivity.startActionMode(this@MainActivity)
+                    }
+                    toggleSelection(bindingAdapterPosition)
+                    true
+                }
+            }
+
+            fun bind(imageUri: Uri, isSelected: Boolean) {
+                selectionOverlay.visibility = if (isSelected) View.VISIBLE else View.GONE
+                loadImage(imageUri)
+            }
 
             // --- Updated to load from a Uri ---
             fun loadImage(imageUri: Uri) {
@@ -297,5 +366,115 @@ class MainActivity : AppCompatActivity() {
                 return inSampleSize
             }
         }
+    }
+
+    private fun setupDestFolderPicker() {
+        destFolderPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            uri?.let { destUri ->
+                val itemsToCopy = adapter.getSelectedItems()
+                if (itemsToCopy.isNotEmpty()) {
+                    copyFilesTo(itemsToCopy, destUri)
+                }
+            }
+        }
+    }
+
+    private fun copyFilesTo(files: List<Uri>, destinationTreeUri: Uri) { // Renamed for clarity
+        scope.launch(Dispatchers.Main) {
+            copyProgressBar.visibility = View.VISIBLE
+            val fileCount = files.size
+            var successCount = 0
+
+            val docId = DocumentsContract.getTreeDocumentId(destinationTreeUri)
+            val destinationFolderDocUri = DocumentsContract.buildDocumentUriUsingTree(destinationTreeUri, docId)
+
+            withContext(Dispatchers.IO) {
+                files.forEach { fileUri ->
+                    try {
+                        val fileName = getFileName(fileUri) ?: "file_${System.currentTimeMillis()}"
+
+                        // Now, use the corrected Document URI when creating the new file.
+                        val newFileUri = DocumentsContract.createDocument(
+                            contentResolver,
+                            destinationFolderDocUri!!, // Use the Document URI here
+                            "image/jpeg",
+                            fileName
+                        )
+
+                        if (newFileUri != null) {
+                            contentResolver.openInputStream(fileUri)?.use { input ->
+                                contentResolver.openOutputStream(newFileUri)?.use { output ->
+                                    input.copyTo(output)
+                                    successCount++
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        // It's good practice to log or show an error for the failed file
+                    }
+                }
+            }
+
+            // Back on the Main thread
+            copyProgressBar.visibility = View.GONE
+            Toast.makeText(this@MainActivity, "Copied $successCount of $fileCount files", Toast.LENGTH_LONG).show()
+            actionMode?.finish() // Exit action mode after copy
+        }
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val columnIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (columnIndex != -1) {
+                        result = cursor.getString(columnIndex)
+                    }
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/')
+            if (cut != -1) {
+                result = result?.substring(cut!! + 1)
+            }
+        }
+        return result
+    }
+
+    // --- ActionMode.Callback Implementation ---
+    override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+        this.actionMode = mode
+        mode?.menuInflater?.inflate(R.menu.contextual_action_menu, menu)
+        return true
+    }
+
+    override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
+        val selectedCount = adapter.getSelectedCount()
+        mode?.title = "$selectedCount selected"
+        return true
+    }
+
+    override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
+        when (item?.itemId) {
+            R.id.action_copy -> {
+                // Launch the destination folder picker
+                destFolderPickerLauncher.launch(null)
+                return true
+            }
+            R.id.action_select_all -> {
+                adapter.selectAll()
+                return true
+            }
+        }
+        return false
+    }
+
+    override fun onDestroyActionMode(mode: ActionMode?) {
+        this.actionMode = null
+        adapter.clearSelections()
     }
 }
