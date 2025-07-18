@@ -1,17 +1,25 @@
 package com.lechneralexander.vayusync
 
 import android.Manifest
-import android.app.Activity
+import android.content.ContentUris
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
@@ -22,88 +30,166 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
-class MainActivity : Activity() {
+class MainActivity : AppCompatActivity() {
     companion object {
         private const val PERMISSION_REQUEST_CODE = 100
+        private const val PREFS_NAME = "VayuSyncPrefs"
+        private const val KEY_FOLDER_URI = "folderUri"
     }
 
     private lateinit var recyclerView: RecyclerView
+    private lateinit var selectFolderButton: Button
     private lateinit var adapter: ImageAdapter
-    private val imageFiles = mutableListOf<File>()
+    // --- Use Uri instead of File ---
+    private val imageUris = mutableListOf<Uri>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // --- Modern way to handle Activity results ---
+    private lateinit var folderPickerLauncher: ActivityResultLauncher<Uri?>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         setupRecyclerView()
+        setupFolderPicker()
+
+        val toolbar: Toolbar = findViewById(R.id.toolbar)
+        setSupportActionBar(toolbar)
+
+        selectFolderButton = findViewById(R.id.selectFolderButton)
+        selectFolderButton.setOnClickListener {
+            // Launch the folder picker
+            folderPickerLauncher.launch(null)
+        }
 
         if (checkPermissions()) {
-            loadImages()
+            // Try to load images from a previously saved folder URI
+            loadSavedFolder()
         } else {
             requestPermissions()
         }
     }
 
+    private fun setupFolderPicker() {
+        folderPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            uri?.let {
+                // Persist access permissions across device reboots
+                contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                saveFolderUri(it)
+                loadImages(it)
+            }
+        }
+    }
+
+    private fun loadSavedFolder() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val uriString = prefs.getString(KEY_FOLDER_URI, null)
+        if (uriString != null) {
+            val uri = Uri.parse(uriString)
+            // Verify we still have permission to read this URI
+            if (contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }) {
+                loadImages(uri)
+            } else {
+                // We lost permission, prompt user to select again
+                Toast.makeText(this, "Permission for folder lost. Please select again.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun saveFolderUri(uri: Uri) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+        prefs.putString(KEY_FOLDER_URI, uri.toString())
+        prefs.apply()
+    }
+
+
     private fun setupRecyclerView() {
         recyclerView = findViewById(R.id.recyclerView)
         recyclerView.layoutManager = GridLayoutManager(this, 3)
-        adapter = ImageAdapter(imageFiles)
+        // --- Pass the new Uri list ---
+        adapter = ImageAdapter(imageUris)
         recyclerView.adapter = adapter
     }
 
     private fun checkPermissions(): Boolean {
+        // These are still needed to query MediaStore
         return ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.READ_MEDIA_IMAGES
-        ) == PackageManager.PERMISSION_GRANTED
-                && ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.READ_MEDIA_VIDEO
+            this, Manifest.permission.READ_MEDIA_IMAGES
+        ) == PackageManager.PERMISSION_GRANTED && ContextCompat.checkSelfPermission(
+            this, Manifest.permission.READ_MEDIA_VIDEO
         ) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun requestPermissions() {
-        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO), PERMISSION_REQUEST_CODE)
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO),
+            PERMISSION_REQUEST_CODE
+        )
     }
 
     override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                loadImages()
+                loadSavedFolder()
             } else {
                 Toast.makeText(this, "Storage permissions required", Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    private fun loadImages() {
+    // --- Updated to take a folder Uri ---
+    private fun loadImages(folderUri: Uri) {
         scope.launch(Dispatchers.IO) {
-            // Use MediaStore for modern Android versions (more efficient and respects scoped storage)
-            loadImagesFromMediaStore()
+            val relativePath = getRelativePathFromUri(folderUri)
+            if (relativePath == null) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Could not find folder path", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            // --- Pass the relative path to the MediaStore query ---
+            val uris = loadImagesFromMediaStore(relativePath)
             withContext(Dispatchers.Main) {
+                imageUris.clear()
+                imageUris.addAll(uris)
                 adapter.notifyDataSetChanged()
+                if (imageUris.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "No images found in the selected folder.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
 
-    private fun loadImagesFromMediaStore() {
+    // --- Helper to convert a SAF tree URI to a MediaStore relative path ---
+    private fun getRelativePathFromUri(treeUri: Uri): String? {
+        val docId = DocumentsContract.getTreeDocumentId(treeUri)
+        val split = docId.split(":")
+        return if (split.size > 1) {
+            "${split[1]}/" // The path needs to end with a slash for MediaStore
+        } else {
+            null
+        }
+    }
+
+    // --- Updated to return a list of Uris and filter by path ---
+    private fun loadImagesFromMediaStore(relativePath: String): List<Uri> {
+        val foundUris = mutableListOf<Uri>()
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
-            MediaStore.Images.Media.DATA,
             MediaStore.Images.Media.DISPLAY_NAME,
-            MediaStore.Images.Media.DATE_MODIFIED
+            MediaStore.Images.Media.RELATIVE_PATH
         )
 
-        val selection = "${MediaStore.Images.Media.MIME_TYPE} = ? OR ${MediaStore.Images.Media.MIME_TYPE} = ?"
-        val selectionArgs = arrayOf("image/jpeg", "image/jpg")
+        // --- The key change: Filter by RELATIVE_PATH with a wildcard to include subfolders ---
+        val selection = "${MediaStore.Images.Media.MIME_TYPE} IN (?, ?) AND ${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
+        val selectionArgs = arrayOf("image/jpeg", "image/jpg", "$relativePath%")
         val sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} DESC"
 
         contentResolver.query(
@@ -113,21 +199,18 @@ class MainActivity : Activity() {
             selectionArgs,
             sortOrder
         )?.use { cursor ->
-            val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
 
             while (cursor.moveToNext()) {
-                val filePath = cursor.getString(dataColumn)
-                val file = File(filePath)
-                if (file.exists() && file.isJpgFile()) {
-                    imageFiles.add(file)
-                }
+                val id = cursor.getLong(idColumn)
+                // --- Build the content URI for each image ---
+                val contentUri = ContentUris.withAppendedId(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id
+                )
+                foundUris.add(contentUri)
             }
         }
-    }
-
-    private fun File.isJpgFile(): Boolean {
-        val name = this.name.lowercase()
-        return name.endsWith(".jpg") || name.endsWith(".jpeg")
+        return foundUris
     }
 
     override fun onDestroy() {
@@ -135,7 +218,8 @@ class MainActivity : Activity() {
         scope.cancel()
     }
 
-    inner class ImageAdapter(private val images: MutableList<File>) :
+    // --- Adapter now takes a list of Uris ---
+    inner class ImageAdapter(private val images: List<Uri>) :
         RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -145,8 +229,8 @@ class MainActivity : Activity() {
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val imageFile = images[position]
-            holder.loadImage(imageFile)
+            val imageUri = images[position]
+            holder.loadImage(imageUri)
         }
 
         override fun getItemCount(): Int = images.size
@@ -154,34 +238,44 @@ class MainActivity : Activity() {
         inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             private val imageView: ImageView = itemView.findViewById(R.id.imageView)
 
-            fun loadImage(imageFile: File) {
-                // Clear previous image
+            // --- Updated to load from a Uri ---
+            fun loadImage(imageUri: Uri) {
                 imageView.setImageResource(android.R.color.transparent)
 
                 scope.launch(Dispatchers.IO) {
-                    val bitmap = loadOptimizedBitmap(imageFile, 200, 200)
+                    val bitmap = loadOptimizedBitmap(imageUri, 200, 200)
                     withContext(Dispatchers.Main) {
-                        bitmap?.let { imageView.setImageBitmap(it) }
+                        // Check if the holder is still bound to the same position
+                        if (bindingAdapterPosition != RecyclerView.NO_POSITION) {
+                            bitmap?.let { imageView.setImageBitmap(it) }
+                        }
                     }
                 }
             }
 
-            private fun loadOptimizedBitmap(file: File, reqWidth: Int, reqHeight: Int): Bitmap? {
+            // --- Updated to decode from a Uri InputStream ---
+            private fun loadOptimizedBitmap(uri: Uri, reqWidth: Int, reqHeight: Int): Bitmap? {
                 return try {
+                    // First, decode with inJustDecodeBounds=true to check dimensions
+                    var inputStream = contentResolver.openInputStream(uri)
                     val options = BitmapFactory.Options().apply {
                         inJustDecodeBounds = true
                     }
-                    BitmapFactory.decodeFile(file.absolutePath, options)
+                    BitmapFactory.decodeStream(inputStream, null, options)
+                    inputStream?.close()
 
-                    options.apply {
-                        inSampleSize = calculateInSampleSize(this, reqWidth, reqHeight)
-                        inJustDecodeBounds = false
-                        inPreferredConfig = Bitmap.Config.RGB_565 // Use less memory
-                        inPreferredColorSpace = android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB)
-                    }
+                    // Calculate inSampleSize
+                    options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
 
-                    BitmapFactory.decodeFile(file.absolutePath, options)
+                    // Decode bitmap with inSampleSize set
+                    options.inJustDecodeBounds = false
+                    options.inPreferredConfig = Bitmap.Config.RGB_565
+                    inputStream = contentResolver.openInputStream(uri)
+                    val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
+                    inputStream?.close()
+                    bitmap
                 } catch (e: Exception) {
+                    e.printStackTrace()
                     null
                 }
             }
@@ -193,17 +287,13 @@ class MainActivity : Activity() {
             ): Int {
                 val (height: Int, width: Int) = options.run { outHeight to outWidth }
                 var inSampleSize = 1
-
                 if (height > reqHeight || width > reqWidth) {
                     val halfHeight: Int = height / 2
                     val halfWidth: Int = width / 2
-
-                    while (halfHeight / inSampleSize >= reqHeight &&
-                        halfWidth / inSampleSize >= reqWidth) {
+                    while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
                         inSampleSize *= 2
                     }
                 }
-
                 return inSampleSize
             }
         }
