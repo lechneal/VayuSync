@@ -1,7 +1,6 @@
 package com.lechneralexander.vayusync
 
 import android.Manifest
-import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -9,7 +8,6 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
-import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.view.ActionMode
 import android.view.LayoutInflater
@@ -29,6 +27,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -121,9 +120,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
 
     private fun setupRecyclerView() {
+        val gridLayoutManager = GridLayoutManager(this, 3) // Your existing manager
+
+        // Prefetch 2 full rows of images ahead of time.
+        gridLayoutManager.initialPrefetchItemCount = gridLayoutManager.spanCount * 2
+
         recyclerView = findViewById(R.id.recyclerView)
-        recyclerView.layoutManager = GridLayoutManager(this, 3)
-        // --- Pass the new Uri list ---
+        recyclerView.layoutManager = gridLayoutManager // Use the modified manager
         adapter = ImageAdapter(imageUris)
         recyclerView.adapter = adapter
     }
@@ -314,18 +317,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 loadImage(imageUri)
             }
 
-            // --- Updated to load from a Uri ---
             fun loadImage(imageUri: Uri) {
-                imageView.setImageResource(android.R.color.transparent)
-
-                scope.launch(Dispatchers.IO) {
-                    val bitmap = loadOptimizedBitmap(imageUri, 200, 200)
-                    withContext(Dispatchers.Main) {
-                        // Check if the holder is still bound to the same position
-                        if (bindingAdapterPosition != RecyclerView.NO_POSITION) {
-                            bitmap?.let { imageView.setImageBitmap(it) }
-                        }
-                    }
+                imageView.load(imageUri) {
+                    size(coil.size.ViewSizeResolver(imageView))
+                    allowRgb565(true)
+                    crossfade(50)
+                    placeholder(android.R.color.darker_gray)
+                    error(R.drawable.ic_image_load_error)
                 }
             }
 
