@@ -3,6 +3,7 @@ package com.lechneralexander.vayusync
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
@@ -28,6 +29,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import coil.ImageLoader
+import coil.disk.DiskCache
 import coil.load
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
@@ -35,6 +37,7 @@ import coil.request.ImageRequest
 import coil.request.Parameters
 import coil.size.ViewSizeResolver
 import coil.util.DebugLogger
+import com.lechneralexander.vayusync.cache.CacheHelper
 import com.lechneralexander.vayusync.image.ThumbnailFetcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +45,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
     companion object {
@@ -69,6 +73,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     // To manage the contextual action mode
     private var actionMode: ActionMode? = null
 
+    private val diskCacheName = "image_cache"
+
     private val imageLoader: ImageLoader by lazy {
         ImageLoader.Builder(this)
             .logger(DebugLogger())
@@ -78,6 +84,12 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.25) // 25% of available memory
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(File(this.cacheDir, diskCacheName))
+                    .maxSizeBytes(100L * 1024 * 1024) // 100 MB
                     .build()
             }
             .build()
@@ -349,18 +361,22 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
                 imageView.tag = imageUri // Tag to verify in listeners
 
-                val highResRequest = ImageRequest.Builder(this@MainActivity)
-                    .data(imageUri)
-                    .size(ViewSizeResolver(imageView))
-                    .memoryCacheKey(highResCacheKey)
-                    .build()
-
-                Log.i("TAG", "cache key: ${highResRequest.memoryCacheKey}")
-
-                if (highResRequest.memoryCacheKey != null) {
-                    loadHighResImage(imageUri, highResCacheKey)
+                if (loadMemoryCacheImage(imageUri, highResCacheKey)) {
+                    return
                 }
 
+                if (loadDiskCacheImage(imageUri)) {
+                    return
+                }
+
+                loadThumbnail(imageUri, thumbnailCacheKey, highResCacheKey)
+            }
+
+            private fun loadThumbnail(
+                imageUri: Uri,
+                thumbnailCacheKey: String,
+                highResCacheKey: String
+            ) {
                 imageView.load(imageUri, imageLoader) {
                     size(ViewSizeResolver(imageView))
                     placeholder(R.drawable.ic_image_loading)
@@ -384,6 +400,45 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
 
+            private fun loadMemoryCacheImage(imageUri: Uri, cacheKey: String): Boolean {
+                val highResRequest = ImageRequest.Builder(this@MainActivity)
+                    .data(imageUri)
+                    .size(ViewSizeResolver(imageView))
+                    .memoryCacheKey(cacheKey)
+                    .build()
+
+                Log.i("TAG", "cache key: ${highResRequest.memoryCacheKey}")
+
+                if (highResRequest.memoryCacheKey != null) {
+                    val cachedHighResDrawable = imageLoader.memoryCache?.get(highResRequest.memoryCacheKey!!)
+                    if (cachedHighResDrawable != null) {
+                        loadHighResImage(imageUri, cacheKey)
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            private fun loadDiskCacheImage(imageUri: Uri): Boolean {
+                val diskCache =  File(this@MainActivity.cacheDir, diskCacheName)
+                val cachedFile = File(diskCache, imageUri.lastPathSegment?.replace("/", "_") ?: "")
+
+                if (cachedFile.exists()) {
+                    Log.i("TAG", "loading disk cache: ${cachedFile.path}")
+                    // Load from cached file (faster, cached on disk)
+                    imageView.load(cachedFile) {
+                        placeholder(R.drawable.ic_image_loading)
+                        error(R.drawable.ic_image_load_error)
+                        placeholder(imageView.drawable)
+                        size(ViewSizeResolver(imageView))
+                        crossfade(true)
+                        allowRgb565(true)
+                    }
+                    return true;
+                }
+                return false;
+            }
+
             private fun loadHighResImage(imageUri: Uri, cacheKey: String) {
                 imageView.load(imageUri, imageLoader) {
                     memoryCacheKey(cacheKey)
@@ -392,6 +447,18 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     size(ViewSizeResolver(imageView))
                     allowRgb565(true)
                     crossfade(false)
+
+                    listener(
+                        onSuccess = { request, metadata ->
+                            val drawable = metadata.drawable
+                            val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return@listener
+
+                            // Save bitmap asynchronously
+                            CoroutineScope(Dispatchers.IO).launch {
+                                CacheHelper.saveBitmapToCache(this@MainActivity, imageUri, bitmap)
+                            }
+                        }
+                    )
                 }
             }
         }
