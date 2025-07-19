@@ -3,8 +3,6 @@ package com.lechneralexander.vayusync
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
@@ -27,7 +25,14 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.SimpleItemAnimator
+import coil.ImageLoader
 import coil.load
+import coil.memory.MemoryCache
+import coil.request.Parameters
+import coil.size.ViewSizeResolver
+import coil.util.DebugLogger
+import com.lechneralexander.vayusync.image.ThumbnailFetcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -61,6 +66,20 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     // To manage the contextual action mode
     private var actionMode: ActionMode? = null
 
+    private val imageLoader: ImageLoader by lazy {
+        ImageLoader.Builder(this)
+            .logger(DebugLogger())
+            .components {
+                add(ThumbnailFetcher.Factory())
+            }
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25) // 25% of available memory
+                    .build()
+            }
+            .build()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -78,6 +97,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         selectFolderButton.setOnClickListener {
             folderPickerLauncher.launch(null)
         }
+
+        recyclerView.setHasFixedSize(true)
+        (recyclerView.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
 
         if (checkPermissions()) {
             loadSavedFolder()
@@ -314,61 +336,33 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
             fun bind(imageUri: Uri, isSelected: Boolean) {
                 selectionBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
+
                 loadImage(imageUri)
             }
 
-            fun loadImage(imageUri: Uri) {
-                imageView.load(imageUri) {
-                    size(coil.size.ViewSizeResolver(imageView))
-                    allowRgb565(true)
-                    crossfade(50)
-                    placeholder(android.R.color.darker_gray)
+            private fun loadImage(imageUri: Uri) {
+                imageView.load(imageUri, imageLoader) {
+                    size(ViewSizeResolver(imageView))
+                    placeholder(R.drawable.ic_action_copy)
                     error(R.drawable.ic_image_load_error)
+                    crossfade(true)
+                    allowRgb565(true)
+                    parameters(Parameters().newBuilder()
+                        .set("use_thumbnail", true)
+                        .build()
+                    )
+                    listener(
+                        onSuccess = { _, _ ->
+                            // 2. Then load full image (no use_thumbnail param)
+                            imageView.load(imageUri, imageLoader) {
+                                placeholder(imageView.drawable)
+                                size(ViewSizeResolver(imageView))
+                                allowRgb565(true)
+                                crossfade(true)
+                            }
+                        }
+                    )
                 }
-            }
-
-            // --- Updated to decode from a Uri InputStream ---
-            private fun loadOptimizedBitmap(uri: Uri, reqWidth: Int, reqHeight: Int): Bitmap? {
-                return try {
-                    // First, decode with inJustDecodeBounds=true to check dimensions
-                    var inputStream = contentResolver.openInputStream(uri)
-                    val options = BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
-                    BitmapFactory.decodeStream(inputStream, null, options)
-                    inputStream?.close()
-
-                    // Calculate inSampleSize
-                    options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
-
-                    // Decode bitmap with inSampleSize set
-                    options.inJustDecodeBounds = false
-                    options.inPreferredConfig = Bitmap.Config.RGB_565
-                    inputStream = contentResolver.openInputStream(uri)
-                    val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
-                    inputStream?.close()
-                    bitmap
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    null
-                }
-            }
-
-            private fun calculateInSampleSize(
-                options: BitmapFactory.Options,
-                reqWidth: Int,
-                reqHeight: Int
-            ): Int {
-                val (height: Int, width: Int) = options.run { outHeight to outWidth }
-                var inSampleSize = 1
-                if (height > reqHeight || width > reqWidth) {
-                    val halfHeight: Int = height / 2
-                    val halfWidth: Int = width / 2
-                    while ((halfHeight / inSampleSize) >= reqHeight && (halfWidth / inSampleSize) >= reqWidth) {
-                        inSampleSize *= 2
-                    }
-                }
-                return inSampleSize
             }
         }
     }

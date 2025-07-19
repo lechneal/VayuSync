@@ -1,0 +1,13 @@
+- set output folder
+- add a button that copies all selected files to the output folder
+    - no longer a folder selection when copying
+- show which images are already in the output folder
+- make scrollbar draggable
+- on click preview image fullscreen
+    - also allow moving to next/prev image
+    - preload next/prev image
+    - allow to select also on this page
+- after clicking on copying, show a spinner or something on the single images to indicate they're being copied
+    - allow a new selection and copy process in the meanwhile
+    - it should be possible to continuously select and copy new files
+- if deselecting all (e.g. going back) add support to restore previous selection (e.g. via button)
