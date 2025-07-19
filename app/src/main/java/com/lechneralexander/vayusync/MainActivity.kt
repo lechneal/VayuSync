@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.util.Log
 import android.view.ActionMode
 import android.view.LayoutInflater
 import android.view.Menu
@@ -29,6 +30,8 @@ import androidx.recyclerview.widget.SimpleItemAnimator
 import coil.ImageLoader
 import coil.load
 import coil.memory.MemoryCache
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import coil.request.Parameters
 import coil.size.ViewSizeResolver
 import coil.util.DebugLogger
@@ -341,27 +344,54 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             private fun loadImage(imageUri: Uri) {
+                val thumbnailCacheKey = "thumb_$imageUri"
+                val highResCacheKey = "full_$imageUri"
+
+                imageView.tag = imageUri // Tag to verify in listeners
+
+                val highResRequest = ImageRequest.Builder(this@MainActivity)
+                    .data(imageUri)
+                    .size(ViewSizeResolver(imageView))
+                    .memoryCacheKey(highResCacheKey)
+                    .build()
+
+                Log.i("TAG", "cache key: ${highResRequest.memoryCacheKey}")
+
+                if (highResRequest.memoryCacheKey != null) {
+                    loadHighResImage(imageUri, highResCacheKey)
+                }
+
                 imageView.load(imageUri, imageLoader) {
                     size(ViewSizeResolver(imageView))
-                    placeholder(R.drawable.ic_action_copy)
+                    placeholder(R.drawable.ic_image_loading)
                     error(R.drawable.ic_image_load_error)
                     crossfade(true)
                     allowRgb565(true)
+                    memoryCacheKey(thumbnailCacheKey)
+                    memoryCachePolicy(CachePolicy.ENABLED)
                     parameters(Parameters().newBuilder()
                         .set("use_thumbnail", true)
                         .build()
                     )
                     listener(
                         onSuccess = { _, _ ->
-                            // 2. Then load full image (no use_thumbnail param)
-                            imageView.load(imageUri, imageLoader) {
-                                placeholder(imageView.drawable)
-                                size(ViewSizeResolver(imageView))
-                                allowRgb565(true)
-                                crossfade(true)
+                            // Only load high-res if still bound to same URI
+                            if (imageView.tag == imageUri) {
+                                loadHighResImage(imageUri, highResCacheKey)
                             }
                         }
                     )
+                }
+            }
+
+            private fun loadHighResImage(imageUri: Uri, cacheKey: String) {
+                imageView.load(imageUri, imageLoader) {
+                    memoryCacheKey(cacheKey)
+                    memoryCachePolicy(CachePolicy.ENABLED)
+                    placeholder(imageView.drawable)
+                    size(ViewSizeResolver(imageView))
+                    allowRgb565(true)
+                    crossfade(false)
                 }
             }
         }
