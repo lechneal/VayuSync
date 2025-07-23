@@ -22,6 +22,16 @@
         android:src="@drawable/ic_check_circle"
         android:background="@drawable/badge_background"
         app:tint="?attr/colorOnPrimary"
-        android:visibility="gone" /> <!-- Initially hidden -->
+        android:visibility="gone" />
 
+    <ImageView
+        android:id="@+id/mediaTypeIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="8dp"
+        android:src="@drawable/ic_type_video"
+        app:tint="?attr/colorOnPrimary"
+        android:alpha="0.5"
+        android:visibility="gone" />
 </FrameLayout>

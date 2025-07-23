@@ -1,13 +1,22 @@
-- set output folder
-- add a button that copies all selected files to the output folder
-    - no longer a folder selection when copying
-- show which images are already in the output folder
-- make scrollbar draggable
+- set output folder via button, instead after selection
+    - have the copy button start the copying - no longer folder selection
+    - show which images are already in the output folder
 - on click preview image fullscreen
+    - add image EXIF info
     - also allow moving to next/prev image
     - preload next/prev image
     - allow to select also on this page
+- make scrollbar draggable
+    - https://github.com/timusus/RecyclerView-FastScroll
+    - https://github.com/zhanghai/AndroidFastScroll
 - after clicking on copying, show a spinner or something on the single images to indicate they're being copied
     - allow a new selection and copy process in the meanwhile
     - it should be possible to continuously select and copy new files
+    - show some kind of progress bar based on bytes
+    - have the progress bar also show the estimated remaining time
 - if deselecting all (e.g. going back) add support to restore previous selection (e.g. via button)
+
+
+Done:
+- indicate portrait vs landscape
+- indicate video + show preview image

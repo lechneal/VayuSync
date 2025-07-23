@@ -1,4 +1,4 @@
-package com.lechneralexander.vayusync.image
+package com.lechneralexander.vayusync.fetchers
 import android.content.ContentResolver
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
@@ -38,7 +38,7 @@ class ThumbnailFetcher(
         )
     }
 
-    class Factory() : Fetcher.Factory<Uri> {
+    class Factory : Fetcher.Factory<Uri> {
         override fun create(data: Uri, options: Options, imageLoader: ImageLoader): Fetcher? {
             val useThumbnail = options.parameters.value("use_thumbnail") as? Boolean ?: false
 

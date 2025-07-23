@@ -3,6 +3,7 @@ package com.lechneralexander.vayusync
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -38,7 +39,8 @@ import coil.request.Parameters
 import coil.size.ViewSizeResolver
 import coil.util.DebugLogger
 import com.lechneralexander.vayusync.cache.CacheHelper
-import com.lechneralexander.vayusync.image.ThumbnailFetcher
+import com.lechneralexander.vayusync.fetchers.ThumbnailFetcher
+import com.lechneralexander.vayusync.fetchers.VideoFrameFetcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,7 +56,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         private const val KEY_FOLDER_URI = "folderUri"
     }
 
-    private val SUPPORTED_MIME_TYPES = arrayOf("image/jpeg", "image/jpg", "video/quicktime")
+    private val SUPPORTED_MIME_TYPES = arrayOf("image/jpeg", "image/jpg", "video/quicktime", "video/mp4")
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var selectFolderButton: Button
@@ -79,6 +81,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         ImageLoader.Builder(this)
             .logger(DebugLogger())
             .components {
+                add(VideoFrameFetcher.Factory())
                 add(ThumbnailFetcher.Factory())
             }
             .memoryCache {
@@ -329,7 +332,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             private val imageView: ImageView = itemView.findViewById(R.id.imageView)
-            private val selectionBadge: View = itemView.findViewById(R.id.selectionBadge)
+            private val selectionBadge: ImageView = itemView.findViewById(R.id.selectionBadge)
+            private val mediaTypeIcon: ImageView = itemView.findViewById(R.id.mediaTypeIcon)
 
             init {
                 itemView.setOnClickListener {
@@ -353,6 +357,46 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 selectionBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
 
                 loadImage(imageUri)
+                loadMediaTypeIcon(imageUri)
+            }
+
+            private fun loadMediaTypeIcon(imageUri: Uri) {
+                val mimeType = getMediaType(imageUri)
+
+                when {
+                    mimeType?.startsWith("video") == true -> {
+                        mediaTypeIcon.setImageResource(R.drawable.ic_type_video)
+                        mediaTypeIcon.visibility = View.VISIBLE
+                    }
+                    mimeType?.startsWith("image") == true -> {
+                        val orientation = getImageOrientation(imageUri)
+                        mediaTypeIcon.setImageResource(
+                            if (orientation == "landscape") R.drawable.ic_type_landscape else R.drawable.ic_type_portrait
+                        )
+                        mediaTypeIcon.visibility = View.VISIBLE
+                    }
+                    else -> {
+                        mediaTypeIcon.visibility = View.GONE
+                    }
+                }
+            }
+
+            private fun getMediaType(uri: Uri): String? {
+                return contentResolver.getType(uri)
+            }
+
+            private fun getImageOrientation(uri: Uri): String? {
+                return try {
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        val options = BitmapFactory.Options()
+                        options.inJustDecodeBounds = true
+                        BitmapFactory.decodeStream(input, null, options)
+                        if (options.outWidth > options.outHeight) "landscape" else "portrait"
+                    }
+                } catch (e: Exception) {
+                    Log.e(MainActivity.javaClass.name, "Error", e)
+                    null
+                }
             }
 
             private fun loadImage(imageUri: Uri) {
