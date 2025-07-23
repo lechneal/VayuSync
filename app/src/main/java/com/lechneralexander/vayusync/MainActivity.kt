@@ -30,17 +30,13 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import coil.ImageLoader
-import coil.disk.DiskCache
+import coil.imageLoader
 import coil.load
-import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.Parameters
 import coil.size.ViewSizeResolver
-import coil.util.DebugLogger
 import com.lechneralexander.vayusync.cache.CacheHelper
-import com.lechneralexander.vayusync.fetchers.ThumbnailFetcher
-import com.lechneralexander.vayusync.fetchers.VideoFrameFetcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -74,29 +70,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     // To manage the contextual action mode
     private var actionMode: ActionMode? = null
-
-    private val diskCacheName = "image_cache"
-
-    private val imageLoader: ImageLoader by lazy {
-        ImageLoader.Builder(this)
-            .logger(DebugLogger())
-            .components {
-                add(VideoFrameFetcher.Factory())
-                add(ThumbnailFetcher.Factory())
-            }
-            .memoryCache {
-                MemoryCache.Builder(this)
-                    .maxSizePercent(0.25) // 25% of available memory
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(File(this.cacheDir, diskCacheName))
-                    .maxSizeBytes(100L * 1024 * 1024) // 100 MB
-                    .build()
-            }
-            .build()
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -335,29 +308,34 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private val selectionBadge: ImageView = itemView.findViewById(R.id.selectionBadge)
             private val mediaTypeIcon: ImageView = itemView.findViewById(R.id.mediaTypeIcon)
 
-            init {
+            fun bind(imageUri: Uri, isSelected: Boolean) {
+                selectionBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
+
                 itemView.setOnClickListener {
                     if (actionMode != null) {
                         toggleSelection(bindingAdapterPosition)
                     } else {
-                        // Handle normal click if needed (e.g., open image full screen)
+                        showPreview(imageUri)
                     }
                 }
 
                 itemView.setOnLongClickListener {
                     if (actionMode == null) {
                         this@MainActivity.startActionMode(this@MainActivity)
+                        toggleSelection(bindingAdapterPosition)
+                    } else {
+                        showPreview(imageUri)
                     }
-                    toggleSelection(bindingAdapterPosition)
                     true
                 }
-            }
-
-            fun bind(imageUri: Uri, isSelected: Boolean) {
-                selectionBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
 
                 loadImage(imageUri)
                 loadMediaTypeIcon(imageUri)
+            }
+
+            private fun showPreview(imageUri: Uri) {
+                PreviewDialogFragment.newInstance(imageUri)
+                    .show(this@MainActivity.supportFragmentManager, "preview")
             }
 
             private fun loadMediaTypeIcon(imageUri: Uri) {
@@ -401,7 +379,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
             private fun loadImage(imageUri: Uri) {
                 val thumbnailCacheKey = "thumb_$imageUri"
-                val highResCacheKey = "full_$imageUri"
+                val highResCacheKey = "prev_$imageUri"
 
                 imageView.tag = imageUri // Tag to verify in listeners
 
@@ -421,7 +399,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 thumbnailCacheKey: String,
                 highResCacheKey: String
             ) {
-                imageView.load(imageUri, imageLoader) {
+                imageView.load(imageUri, getImageLoader()) {
                     size(ViewSizeResolver(imageView))
                     placeholder(R.drawable.ic_image_loading)
                     error(R.drawable.ic_image_load_error)
@@ -464,7 +442,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             private fun loadDiskCacheImage(imageUri: Uri): Boolean {
-                val diskCache =  File(this@MainActivity.cacheDir, diskCacheName)
+                val diskCache = getDiskCache()
                 val cachedFile = File(diskCache, imageUri.lastPathSegment?.replace("/", "_") ?: "")
 
                 if (cachedFile.exists()) {
@@ -616,5 +594,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     override fun onDestroyActionMode(mode: ActionMode?) {
         this.actionMode = null
         adapter.clearSelections()
+    }
+
+    fun getImageLoader(): ImageLoader {
+        return (applicationContext as VayuApp).getImageLoader()
+    }
+
+    fun getDiskCache(): File {
+        return (applicationContext as VayuApp).getDiskCache()
     }
 }
