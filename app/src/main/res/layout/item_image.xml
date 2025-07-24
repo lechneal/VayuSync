@@ -26,12 +26,13 @@
 
     <ImageView
         android:id="@+id/mediaTypeIcon"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:layout_width="12dp"
+        android:layout_height="12dp"
         android:layout_gravity="bottom|start"
         android:layout_margin="8dp"
         android:src="@drawable/ic_type_video"
         app:tint="?attr/colorOnPrimary"
-        android:alpha="0.5"
+        android:alpha="0.8"
+        android:background="?attr/colorPrimary"
         android:visibility="gone" />
 </FrameLayout>

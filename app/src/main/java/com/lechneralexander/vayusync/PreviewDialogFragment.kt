@@ -9,8 +9,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.VideoView
+import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.DialogFragment
 import coil.load
+import coil.request.ImageRequest
 
 class PreviewDialogFragment : DialogFragment() {
 
@@ -46,12 +48,34 @@ class PreviewDialogFragment : DialogFragment() {
             Log.d("Preview", "Loading image: $uri, mime: $mime")
             val imageView = view.findViewById<ImageView>(R.id.fullImageView)
             val imageLoader = (requireContext().applicationContext as VayuApp).getImageLoader()
-            imageView.load(uri, imageLoader) {
-                placeholder(R.drawable.ic_image_loading)
-                error(R.drawable.ic_image_load_error)
-                crossfade(true)
-                allowRgb565(true)
+
+            //TODO consolidate cache key
+            //TODO use separate cache key for mem cache
+            val highResRequest = ImageRequest.Builder(requireContext())
+                .data(uri)
+                .memoryCacheKey("prev_$uri")
+                .build()
+            val cachedHighResDrawable = imageLoader.memoryCache?.get(highResRequest.memoryCacheKey!!)
+            val placeholderDrawable = cachedHighResDrawable?.bitmap?.toDrawable(resources)
+
+            Log.i("Preview", "cache key: ${highResRequest.memoryCacheKey}")
+
+            if (cachedHighResDrawable != null) {
+                imageView.load(uri, imageLoader) {
+                    placeholder(placeholderDrawable)
+                    error(R.drawable.ic_image_load_error)
+                    crossfade(true)
+                    allowRgb565(true)
+                }
+            } else {
+                imageView.load(uri, imageLoader) {
+                    placeholder(R.drawable.ic_image_loading)
+                    error(R.drawable.ic_image_load_error)
+                    crossfade(true)
+                    allowRgb565(true)
+                }
             }
+
             imageView.visibility = View.VISIBLE
         }
 

@@ -3,7 +3,6 @@ package com.lechneralexander.vayusync
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -26,14 +25,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import coil.ImageLoader
-import coil.imageLoader
 import coil.load
 import coil.request.CachePolicy
-import coil.request.ImageRequest
 import coil.request.Parameters
 import coil.size.ViewSizeResolver
 import com.lechneralexander.vayusync.cache.CacheHelper
@@ -58,7 +56,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private lateinit var selectFolderButton: Button
     private lateinit var adapter: ImageAdapter
     // --- Use Uri instead of File ---
-    private val imageUris = mutableListOf<Uri>()
+    private val imageInfos = mutableListOf<ImageInfo>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     // --- Modern way to handle Activity results ---
@@ -140,7 +138,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         recyclerView = findViewById(R.id.recyclerView)
         recyclerView.layoutManager = gridLayoutManager // Use the modified manager
-        adapter = ImageAdapter(imageUris)
+        adapter = ImageAdapter(imageInfos)
         recyclerView.adapter = adapter
     }
 
@@ -174,9 +172,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun listImageFilesFromUri(treeUri: Uri): List<Uri> {
+    private fun listImageFilesFromUri(treeUri: Uri): List<ImageInfo> {
         val context = this
-        val foundUris = mutableListOf<Uri>()
+        val foundImages = mutableListOf<ImageInfo>()
 
         // We need a stack to do a breadth-first or depth-first search.
         val directoryStack = ArrayDeque<Uri>()
@@ -217,35 +215,77 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                             }
                             // If it's an image, add it to our results list
                             SUPPORTED_MIME_TYPES.contains(mimeType) -> {
-                                foundUris.add(docUri)
+                                foundImages.add(ImageInfo(docUri, mimeType, Orientation.UNDEFINED))
                             }
                         }
                     }
                 }
             }
         }
-        return foundUris
+        return foundImages
     }
 
     private fun loadImages(folderUri: Uri) {
         scope.launch(Dispatchers.IO) {
-            val uris = listImageFilesFromUri(folderUri)
-
-            // Sort the results if desired (optional)
-            // Note: Sorting by name is simpler than by date without MediaStore
-            val sortedUris = uris.sortedBy { it.toString() }.reversed()
+            val images = listImageFilesFromUri(folderUri)
+            val sortedImages = images.sortedBy { it.uri.toString() }.reversed()
 
             withContext(Dispatchers.Main) {
-                imageUris.clear()
-                imageUris.addAll(sortedUris)
-                adapter.notifyDataSetChanged()
-                if (imageUris.isEmpty()) {
+                imageInfos.clear()
+                imageInfos.addAll(sortedImages)
+                adapter.notifyItemRangeInserted(0, images.size)
+                if (imageInfos.isEmpty()) {
                     Toast.makeText(this@MainActivity, "No images found in the selected folder.", Toast.LENGTH_LONG).show()
                 } else {
                     // Scroll to top after loading new folder
                     recyclerView.scrollToPosition(0)
                 }
             }
+
+            // Kick off EXIF parsing in background
+            lazyLoadExifOrientation(images)
+        }
+    }
+
+    private fun lazyLoadExifOrientation(images: List<ImageInfo>) {
+        scope.launch(Dispatchers.IO) {
+            images.forEachIndexed { index, image ->
+                val orientation = readOrientation(image)
+                image.orientation = orientation
+
+                withContext(Dispatchers.Main) {
+                    adapter.notifyItemChanged(index)
+                }
+            }
+        }
+    }
+
+    private fun readOrientation(image: ImageInfo): Orientation {
+        return try {
+            contentResolver.openInputStream(image.uri).use { input ->
+                val exif = ExifInterface(input!!)
+                val exifOrientation = exif.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_UNDEFINED
+                )
+
+                return when (exifOrientation) {
+                    ExifInterface.ORIENTATION_ROTATE_90,
+                    ExifInterface.ORIENTATION_ROTATE_270,
+                    ExifInterface.ORIENTATION_TRANSPOSE,
+                    ExifInterface.ORIENTATION_TRANSVERSE -> Orientation.PORTRAIT
+
+                    ExifInterface.ORIENTATION_NORMAL,
+                    ExifInterface.ORIENTATION_ROTATE_180,
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL,
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> Orientation.LANDSCAPE
+
+                    else -> Orientation.UNDEFINED // default fallback
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(MainActivity.javaClass.name, "Error", e)
+            Orientation.UNDEFINED
         }
     }
 
@@ -255,20 +295,24 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     // --- Adapter now takes a list of Uris ---
-    inner class ImageAdapter(private val images: List<Uri>) :
+    inner class ImageAdapter(private val images: List<ImageInfo>) :
         RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
-        private val selectedItems = mutableSetOf<Uri>()
+        private val selectedItems = mutableSetOf<ImageInfo>()
 
         fun getSelectedCount() = selectedItems.size
-        fun getSelectedItems(): List<Uri> = selectedItems.toList()
+        fun getSelectedItems(): List<ImageInfo> = selectedItems.toList()
+
+        fun getImageInfo(position: Int): ImageInfo {
+            return images[position]
+        }
 
         fun toggleSelection(position: Int) {
-            val uri = images[position]
-            if (selectedItems.contains(uri)) {
-                selectedItems.remove(uri)
+            val imageInfo = getImageInfo(position)
+            if (selectedItems.contains(imageInfo)) {
+                selectedItems.remove(imageInfo)
             } else {
-                selectedItems.add(uri)
+                selectedItems.add(imageInfo)
             }
             notifyItemChanged(position)
             actionMode?.invalidate() // Re-runs onPrepareActionMode to update title
@@ -296,9 +340,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val imageUri = images[position]
-            val isSelected = selectedItems.contains(imageUri)
-            holder.bind(imageUri, isSelected)
+            val imageInfo = getImageInfo(position)
+            val isSelected = selectedItems.contains(imageInfo)
+            holder.bind(imageInfo, isSelected)
         }
 
         override fun getItemCount(): Int = images.size
@@ -308,14 +352,12 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private val selectionBadge: ImageView = itemView.findViewById(R.id.selectionBadge)
             private val mediaTypeIcon: ImageView = itemView.findViewById(R.id.mediaTypeIcon)
 
-            fun bind(imageUri: Uri, isSelected: Boolean) {
-                selectionBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
-
+            init {
                 itemView.setOnClickListener {
                     if (actionMode != null) {
                         toggleSelection(bindingAdapterPosition)
                     } else {
-                        showPreview(imageUri)
+                        showPreview(getImageInfo(bindingAdapterPosition).uri)
                     }
                 }
 
@@ -324,13 +366,17 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         this@MainActivity.startActionMode(this@MainActivity)
                         toggleSelection(bindingAdapterPosition)
                     } else {
-                        showPreview(imageUri)
+                        showPreview(getImageInfo(bindingAdapterPosition).uri)
                     }
                     true
                 }
+            }
 
-                loadImage(imageUri)
-                loadMediaTypeIcon(imageUri)
+            fun bind(imageInfo: ImageInfo, isSelected: Boolean) {
+                selectionBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
+
+                loadImage(imageInfo.uri)
+                loadMediaTypeIcon(imageInfo)
             }
 
             private fun showPreview(imageUri: Uri) {
@@ -338,20 +384,24 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     .show(this@MainActivity.supportFragmentManager, "preview")
             }
 
-            private fun loadMediaTypeIcon(imageUri: Uri) {
-                val mimeType = getMediaType(imageUri)
+            private fun loadMediaTypeIcon(image: ImageInfo) {
+                val mimeType = image.mimeType
 
                 when {
-                    mimeType?.startsWith("video") == true -> {
+                    mimeType.startsWith("video") -> {
                         mediaTypeIcon.setImageResource(R.drawable.ic_type_video)
                         mediaTypeIcon.visibility = View.VISIBLE
                     }
-                    mimeType?.startsWith("image") == true -> {
-                        val orientation = getImageOrientation(imageUri)
-                        mediaTypeIcon.setImageResource(
-                            if (orientation == "landscape") R.drawable.ic_type_landscape else R.drawable.ic_type_portrait
-                        )
-                        mediaTypeIcon.visibility = View.VISIBLE
+                    mimeType.startsWith("image") -> {
+                        if (image.orientation == Orientation.UNDEFINED) {
+                            mediaTypeIcon.visibility = View.GONE
+                        } else {
+                            mediaTypeIcon.visibility = View.VISIBLE
+                            mediaTypeIcon.setImageResource(
+                                if (image.orientation == Orientation.LANDSCAPE) R.drawable.ic_type_landscape
+                                else R.drawable.ic_type_portrait
+                            )
+                        }
                     }
                     else -> {
                         mediaTypeIcon.visibility = View.GONE
@@ -359,44 +409,20 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
 
-            private fun getMediaType(uri: Uri): String? {
-                return contentResolver.getType(uri)
-            }
-
-            private fun getImageOrientation(uri: Uri): String? {
-                return try {
-                    contentResolver.openInputStream(uri)?.use { input ->
-                        val options = BitmapFactory.Options()
-                        options.inJustDecodeBounds = true
-                        BitmapFactory.decodeStream(input, null, options)
-                        if (options.outWidth > options.outHeight) "landscape" else "portrait"
-                    }
-                } catch (e: Exception) {
-                    Log.e(MainActivity.javaClass.name, "Error", e)
-                    null
-                }
-            }
-
             private fun loadImage(imageUri: Uri) {
-                val thumbnailCacheKey = "thumb_$imageUri"
                 val highResCacheKey = "prev_$imageUri"
 
                 imageView.tag = imageUri // Tag to verify in listeners
 
-                if (loadMemoryCacheImage(imageUri, highResCacheKey)) {
+                if (loadDiskCacheImage(imageUri, highResCacheKey)) {
                     return
                 }
 
-                if (loadDiskCacheImage(imageUri)) {
-                    return
-                }
-
-                loadThumbnail(imageUri, thumbnailCacheKey, highResCacheKey)
+                loadThumbnail(imageUri, highResCacheKey)
             }
 
             private fun loadThumbnail(
                 imageUri: Uri,
-                thumbnailCacheKey: String,
                 highResCacheKey: String
             ) {
                 imageView.load(imageUri, getImageLoader()) {
@@ -405,7 +431,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     error(R.drawable.ic_image_load_error)
                     crossfade(true)
                     allowRgb565(true)
-                    memoryCacheKey(thumbnailCacheKey)
+                    memoryCacheKey("thumb_$imageUri")
                     memoryCachePolicy(CachePolicy.ENABLED)
                     parameters(Parameters().newBuilder()
                         .set("use_thumbnail", true)
@@ -415,41 +441,22 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         onSuccess = { _, _ ->
                             // Only load high-res if still bound to same URI
                             if (imageView.tag == imageUri) {
-                                loadHighResImage(imageUri, highResCacheKey)
+                                loadPreview(imageUri, highResCacheKey)
                             }
                         }
                     )
                 }
             }
 
-            private fun loadMemoryCacheImage(imageUri: Uri, cacheKey: String): Boolean {
-                val highResRequest = ImageRequest.Builder(this@MainActivity)
-                    .data(imageUri)
-                    .size(ViewSizeResolver(imageView))
-                    .memoryCacheKey(cacheKey)
-                    .build()
-
-                Log.i("TAG", "cache key: ${highResRequest.memoryCacheKey}")
-
-                if (highResRequest.memoryCacheKey != null) {
-                    val cachedHighResDrawable = imageLoader.memoryCache?.get(highResRequest.memoryCacheKey!!)
-                    if (cachedHighResDrawable != null) {
-                        loadHighResImage(imageUri, cacheKey)
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            private fun loadDiskCacheImage(imageUri: Uri): Boolean {
+            private fun loadDiskCacheImage(imageUri: Uri, cacheKey: String): Boolean {
                 val diskCache = getDiskCache()
                 val cachedFile = File(diskCache, imageUri.lastPathSegment?.replace("/", "_") ?: "")
 
                 if (cachedFile.exists()) {
-                    Log.i("TAG", "loading disk cache: ${cachedFile.path}")
                     // Load from cached file (faster, cached on disk)
-                    imageView.load(cachedFile) {
-                        placeholder(R.drawable.ic_image_loading)
+                    imageView.load(cachedFile, getImageLoader()) {
+                        memoryCacheKey(cacheKey)
+                        memoryCachePolicy(CachePolicy.ENABLED)
                         error(R.drawable.ic_image_load_error)
                         placeholder(imageView.drawable)
                         size(ViewSizeResolver(imageView))
@@ -461,8 +468,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 return false;
             }
 
-            private fun loadHighResImage(imageUri: Uri, cacheKey: String) {
-                imageView.load(imageUri, imageLoader) {
+            private fun loadPreview(imageUri: Uri, cacheKey: String) {
+                imageView.load(imageUri, getImageLoader()) {
                     memoryCacheKey(cacheKey)
                     memoryCachePolicy(CachePolicy.ENABLED)
                     placeholder(imageView.drawable)
@@ -471,7 +478,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     crossfade(false)
 
                     listener(
-                        onSuccess = { request, metadata ->
+                        onSuccess = { _, metadata ->
                             val drawable = metadata.drawable
                             val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return@listener
 
@@ -497,19 +504,19 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun copyFilesTo(files: List<Uri>, destinationTreeUri: Uri) { // Renamed for clarity
+    private fun copyFilesTo(images: List<ImageInfo>, destinationTreeUri: Uri) { // Renamed for clarity
         scope.launch(Dispatchers.Main) {
             copyProgressBar.visibility = View.VISIBLE
-            val fileCount = files.size
+            val fileCount = images.size
             var successCount = 0
 
             val docId = DocumentsContract.getTreeDocumentId(destinationTreeUri)
             val destinationFolderDocUri = DocumentsContract.buildDocumentUriUsingTree(destinationTreeUri, docId)
 
             withContext(Dispatchers.IO) {
-                files.forEach { fileUri ->
+                images.forEach { image ->
                     try {
-                        val fileName = getFileName(fileUri) ?: "file_${System.currentTimeMillis()}"
+                        val fileName = getFileName(image.uri) ?: "file_${System.currentTimeMillis()}"
 
                         // Now, use the corrected Document URI when creating the new file.
                         val newFileUri = DocumentsContract.createDocument(
@@ -520,7 +527,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         )
 
                         if (newFileUri != null) {
-                            contentResolver.openInputStream(fileUri)?.use { input ->
+                            contentResolver.openInputStream(image.uri)?.use { input ->
                                 contentResolver.openOutputStream(newFileUri)?.use { output ->
                                     input.copyTo(output)
                                     successCount++
@@ -603,4 +610,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     fun getDiskCache(): File {
         return (applicationContext as VayuApp).getDiskCache()
     }
+
+    data class ImageInfo(val uri: Uri, val mimeType: String, var orientation: Orientation)
+
+    enum class Orientation {PORTRAIT, LANDSCAPE, UNDEFINED}
 }

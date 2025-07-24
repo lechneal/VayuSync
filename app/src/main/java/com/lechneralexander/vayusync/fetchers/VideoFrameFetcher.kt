@@ -20,7 +20,7 @@ class VideoFrameFetcher(
         val retriever = MediaMetadataRetriever()
         retriever.setDataSource(context, uri)
 
-        val frame = retriever.getFrameAtTime(1, MediaMetadataRetriever.OPTION_CLOSEST)
+        val frame = retriever.getFrameAtIndex(5)
         retriever.release()
 
         return DrawableResult(
