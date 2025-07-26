@@ -12,7 +12,6 @@
         android:scaleType="centerCrop"
         android:background="?attr/colorOnSurfaceInverse" />
 
-    <!-- This view will be shown when the item is selected -->
     <ImageView
         android:id="@+id/selectionBadge"
         android:layout_width="24dp"

@@ -1,6 +1,7 @@
 package com.lechneralexander.vayusync
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.BitmapDrawable
@@ -42,28 +43,31 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.core.content.edit
+import androidx.core.net.toUri
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
     companion object {
         private const val PERMISSION_REQUEST_CODE = 100
         private const val PREFS_NAME = "VayuSyncPrefs"
-        private const val KEY_FOLDER_URI = "folderUri"
+        private const val KEY_SOURCE_FOLDER_URI = "sourceFolderUri"
+        private const val KEY_DESTINATION_FOLDER_URI = "destinationFolderUri"
     }
 
     private val SUPPORTED_MIME_TYPES = arrayOf("image/jpeg", "image/jpg", "video/quicktime", "video/mp4")
 
     private lateinit var recyclerView: RecyclerView
-    private lateinit var selectFolderButton: Button
+    private lateinit var selectSourceFolderButton: Button
+    private lateinit var selectDestinationFolderButton: Button
     private lateinit var adapter: ImageAdapter
     // --- Use Uri instead of File ---
     private val imageInfos = mutableListOf<ImageInfo>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    // --- Modern way to handle Activity results ---
-    private lateinit var folderPickerLauncher: ActivityResultLauncher<Uri?>
 
     // -- copy
     private lateinit var copyProgressBar: ProgressBar
+    private lateinit var sourceFolderPickerLauncher: ActivityResultLauncher<Uri?>
     private lateinit var destFolderPickerLauncher: ActivityResultLauncher<Uri?>
 
     // To manage the contextual action mode
@@ -79,56 +83,133 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         copyProgressBar = findViewById(R.id.copyProgressBar)
 
         setupRecyclerView()
-        setupFolderPicker()
-        setupDestFolderPicker() // New launcher for destination
+        setupSourceFolderPicker()
+        setupDestFolderPicker()
 
-        selectFolderButton = findViewById(R.id.selectFolderButton)
-        selectFolderButton.setOnClickListener {
-            folderPickerLauncher.launch(null)
+        selectSourceFolderButton = findViewById(R.id.selectSourceFolderButton)
+        selectSourceFolderButton.setOnClickListener {
+            sourceFolderPickerLauncher.launch(null)
+        }
+        selectSourceFolderButton.setOnLongClickListener {
+            val uri = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_SOURCE_FOLDER_URI, "Not set")
+            Toast.makeText(this, uri, Toast.LENGTH_LONG).show()
+            true
+        }
+
+        selectDestinationFolderButton = findViewById(R.id.selectDestinationFolderButton)
+        selectDestinationFolderButton.setOnClickListener {
+            destFolderPickerLauncher.launch(null)
+        }
+        selectDestinationFolderButton.setOnLongClickListener {
+            val uri = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(
+                KEY_DESTINATION_FOLDER_URI, "Not set")
+            Toast.makeText(this, uri, Toast.LENGTH_LONG).show()
+            true
         }
 
         recyclerView.setHasFixedSize(true)
         (recyclerView.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
 
         if (checkPermissions()) {
-            loadSavedFolder()
+            loadSavedSourceFolderAndImages()
         } else {
             requestPermissions()
         }
     }
 
-    private fun setupFolderPicker() {
-        folderPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+    private fun setupSourceFolderPicker() {
+        sourceFolderPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             uri?.let {
                 // Persist access permissions across device reboots
                 contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                saveFolderUri(it)
+                saveSourceFolderUri(it)
                 loadImages(it)
             }
         }
     }
 
-    private fun loadSavedFolder() {
+    private fun setupDestFolderPicker() {
+        destFolderPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            uri?.let { destUri ->
+                contentResolver.takePersistableUriPermission(destUri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                saveDestinationFolderUri(destUri)
+                updateAlreadyStoredImages()
+                Toast.makeText(this, "Output folder set.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun loadSavedSourceFolderAndImages() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val uriString = prefs.getString(KEY_FOLDER_URI, null)
+        val uriString = prefs.getString(KEY_SOURCE_FOLDER_URI, null)
         if (uriString != null) {
-            val uri = Uri.parse(uriString)
+            val uri = uriString.toUri()
             // Verify we still have permission to read this URI
             if (contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }) {
                 loadImages(uri)
             } else {
                 // We lost permission, prompt user to select again
-                Toast.makeText(this, "Permission for folder lost. Please select again.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Permission for source folder lost. Please select again.", Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    private fun saveFolderUri(uri: Uri) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-        prefs.putString(KEY_FOLDER_URI, uri.toString())
-        prefs.apply()
+    private fun getSavedDestinationFolder(): Uri? {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val uriString = prefs.getString(KEY_DESTINATION_FOLDER_URI, null)
+        if (uriString != null) {
+            val uri = uriString.toUri()
+            // Verify we still have permission to read and write this URI
+            if (contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission && it.isWritePermission }) {
+                return uri
+            } else {
+                // We lost permission, prompt user to select again
+                Toast.makeText(this, "Permission for destination folder lost. Please select again.", Toast.LENGTH_LONG).show()
+            }
+        }
+        return null
     }
 
+    private fun saveSourceFolderUri(uri: Uri) {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+            putString(KEY_SOURCE_FOLDER_URI, uri.toString())
+        }
+    }
+
+    private fun saveDestinationFolderUri(uri: Uri) {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+            putString(KEY_DESTINATION_FOLDER_URI, uri.toString())
+        }
+    }
+
+    private fun updateAlreadyStoredImages() {
+        val outputUri = getSavedDestinationFolder()
+        val copiedNames = outputUri?.let { listExistingFilenames(it) } ?: emptySet()
+
+        scope.launch(Dispatchers.IO) {
+            imageInfos.forEachIndexed { index, image ->
+                val name = getFileName(image.uri)
+                image.copied = copiedNames.contains(name)
+
+                withContext(Dispatchers.Main) {
+                    adapter.notifyItemChanged(index)
+                }
+            }
+        }
+    }
+
+    private fun listExistingFilenames(destUri: Uri): Set<String> {
+        val existing = mutableSetOf<String>()
+        val docId = DocumentsContract.getTreeDocumentId(destUri)
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(destUri, docId)
+
+        contentResolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use {
+            while (it.moveToNext()) {
+                existing.add(it.getString(0))
+            }
+        }
+        return existing
+    }
 
     private fun setupRecyclerView() {
         val gridLayoutManager = GridLayoutManager(this, 3) // Your existing manager
@@ -165,7 +246,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                loadSavedFolder()
+                loadSavedSourceFolderAndImages()
             } else {
                 Toast.makeText(this, "Storage permissions required", Toast.LENGTH_LONG).show()
             }
@@ -173,6 +254,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     private fun listImageFilesFromUri(treeUri: Uri): List<ImageInfo> {
+        val outputUri = getSavedDestinationFolder()
+        val copiedNames = outputUri?.let { listExistingFilenames(it) } ?: emptySet()
+
         val context = this
         val foundImages = mutableListOf<ImageInfo>()
 
@@ -215,7 +299,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                             }
                             // If it's an image, add it to our results list
                             SUPPORTED_MIME_TYPES.contains(mimeType) -> {
-                                foundImages.add(ImageInfo(docUri, mimeType, Orientation.UNDEFINED))
+                                val name = getFileName(docUri)
+                                foundImages.add(ImageInfo(docUri, mimeType, Orientation.UNDEFINED, copiedNames.contains(name)))
                             }
                         }
                     }
@@ -373,7 +458,15 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             fun bind(imageInfo: ImageInfo, isSelected: Boolean) {
-                selectionBadge.visibility = if (isSelected) View.VISIBLE else View.GONE
+                if (isSelected) {
+                    selectionBadge.visibility = View.VISIBLE
+                    selectionBadge.alpha = 1f
+                } else if (imageInfo.copied) {
+                    selectionBadge.visibility = View.VISIBLE
+                    selectionBadge.alpha = 0.5f
+                } else {
+                    selectionBadge.visibility = View.GONE
+                }
 
                 loadImage(imageInfo.uri)
                 loadMediaTypeIcon(imageInfo)
@@ -493,17 +586,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun setupDestFolderPicker() {
-        destFolderPickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            uri?.let { destUri ->
-                val itemsToCopy = adapter.getSelectedItems()
-                if (itemsToCopy.isNotEmpty()) {
-                    copyFilesTo(itemsToCopy, destUri)
-                }
-            }
-        }
-    }
-
     private fun copyFilesTo(images: List<ImageInfo>, destinationTreeUri: Uri) { // Renamed for clarity
         scope.launch(Dispatchers.Main) {
             copyProgressBar.visibility = View.VISIBLE
@@ -534,6 +616,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                                 }
                             }
                         }
+
+                        //Update flag
+                        image.copied = true
                     } catch (e: Exception) {
                         e.printStackTrace()
                         // It's good practice to log or show an error for the failed file
@@ -586,8 +671,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
         when (item?.itemId) {
             R.id.action_copy -> {
-                // Launch the destination folder picker
-                destFolderPickerLauncher.launch(null)
+                val destUri = getSavedDestinationFolder()
+                if (destUri != null) {
+                    showCopyConfirmationDialog(destUri)
+                } else {
+                    Toast.makeText(this, "Please select output folder first", Toast.LENGTH_SHORT).show()
+                    destFolderPickerLauncher.launch(null)
+                }
                 return true
             }
             R.id.action_select_all -> {
@@ -596,6 +686,17 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
         }
         return false
+    }
+
+    private fun showCopyConfirmationDialog(destUri: Uri) {
+        val selectedCount = adapter.getSelectedCount()
+        AlertDialog.Builder(this)
+            .setMessage("Copy $selectedCount files to:\n$destUri")
+            .setPositiveButton("Copy") { _, _ ->
+                copyFilesTo(adapter.getSelectedItems(), destUri)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     override fun onDestroyActionMode(mode: ActionMode?) {
@@ -611,7 +712,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         return (applicationContext as VayuApp).getDiskCache()
     }
 
-    data class ImageInfo(val uri: Uri, val mimeType: String, var orientation: Orientation)
+    data class ImageInfo(val uri: Uri, val mimeType: String, var orientation: Orientation, var copied: Boolean)
 
     enum class Orientation {PORTRAIT, LANDSCAPE, UNDEFINED}
 }
