@@ -8,7 +8,6 @@ import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
-import android.provider.OpenableColumns
 import android.util.Log
 import android.view.ActionMode
 import android.view.LayoutInflater
@@ -504,29 +503,26 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             private fun loadImage(imageUri: Uri) {
-                val highResCacheKey = "prev_$imageUri"
-
                 imageView.tag = imageUri // Tag to verify in listeners
 
-                if (loadDiskCacheImage(imageUri, highResCacheKey)) {
+                if (loadImageFromDiskCacheIfAvailable(imageUri)) {
                     return
                 }
 
-                loadThumbnail(imageUri, highResCacheKey)
+                loadThumbnail(imageUri)
             }
 
             private fun loadThumbnail(
-                imageUri: Uri,
-                highResCacheKey: String
+                imageUri: Uri
             ) {
                 imageView.load(imageUri, getImageLoader()) {
-                    size(ViewSizeResolver(imageView))
+                    memoryCacheKey(CacheHelper.getThumbnailCacheKey(imageUri))
+                    memoryCachePolicy(CachePolicy.ENABLED)
                     placeholder(R.drawable.ic_image_loading)
                     error(R.drawable.ic_image_load_error)
+                    size(ViewSizeResolver(imageView))
                     crossfade(true)
                     allowRgb565(true)
-                    memoryCacheKey("thumb_$imageUri")
-                    memoryCachePolicy(CachePolicy.ENABLED)
                     parameters(Parameters().newBuilder()
                         .set("use_thumbnail", true)
                         .build()
@@ -535,41 +531,22 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         onSuccess = { _, _ ->
                             // Only load high-res if still bound to same URI
                             if (imageView.tag == imageUri) {
-                                loadPreview(imageUri, highResCacheKey)
+                                loadPreview(imageUri)
                             }
                         }
                     )
                 }
             }
 
-            private fun loadDiskCacheImage(imageUri: Uri, cacheKey: String): Boolean {
-                val diskCache = getDiskCache()
-                val cachedFile = File(diskCache, imageUri.lastPathSegment?.replace("/", "_") ?: "")
-
-                if (cachedFile.exists()) {
-                    // Load from cached file (faster, cached on disk)
-                    imageView.load(cachedFile, getImageLoader()) {
-                        memoryCacheKey(cacheKey)
-                        memoryCachePolicy(CachePolicy.ENABLED)
-                        error(R.drawable.ic_image_load_error)
-                        placeholder(imageView.drawable)
-                        size(ViewSizeResolver(imageView))
-                        crossfade(true)
-                        allowRgb565(true)
-                    }
-                    return true;
-                }
-                return false;
-            }
-
-            private fun loadPreview(imageUri: Uri, cacheKey: String) {
+            private fun loadPreview(imageUri: Uri) {
                 imageView.load(imageUri, getImageLoader()) {
-                    memoryCacheKey(cacheKey)
+                    memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))
                     memoryCachePolicy(CachePolicy.ENABLED)
                     placeholder(imageView.drawable)
+                    error(R.drawable.ic_image_load_error)
                     size(ViewSizeResolver(imageView))
                     allowRgb565(true)
-                    crossfade(false)
+                    crossfade(true)
 
                     listener(
                         onSuccess = { _, metadata ->
@@ -583,6 +560,25 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         }
                     )
                 }
+            }
+
+            private fun loadImageFromDiskCacheIfAvailable(imageUri: Uri): Boolean {
+                val diskCache = getDiskCache()
+                val cachedFile = File(diskCache, CacheHelper.getDiskCacheKey(imageUri))
+
+                if (cachedFile.exists()) {
+                    imageView.load(cachedFile, getImageLoader()) {
+                        memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))
+                        memoryCachePolicy(CachePolicy.ENABLED)
+                        placeholder(imageView.drawable)
+                        error(R.drawable.ic_image_load_error)
+                        size(ViewSizeResolver(imageView))
+                        crossfade(true)
+                        allowRgb565(true)
+                    }
+                    return true
+                }
+                return false
             }
         }
     }

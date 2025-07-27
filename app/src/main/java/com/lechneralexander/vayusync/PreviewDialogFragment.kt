@@ -1,6 +1,7 @@
 package com.lechneralexander.vayusync
 
 import android.app.Dialog
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -10,9 +11,13 @@ import android.view.ViewGroup
 import android.widget.VideoView
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.DialogFragment
+import coil.ImageLoader
 import coil.load
+import coil.memory.MemoryCache
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.github.chrisbanes.photoview.PhotoView
+import com.lechneralexander.vayusync.cache.CacheHelper
 
 class PreviewDialogFragment : DialogFragment() {
 
@@ -49,31 +54,14 @@ class PreviewDialogFragment : DialogFragment() {
             val imageView = view.findViewById<PhotoView>(R.id.fullImageView)
             val imageLoader = (requireContext().applicationContext as VayuApp).getImageLoader()
 
-            //TODO consolidate cache key
-            //TODO use separate cache key for mem cache
-            val highResRequest = ImageRequest.Builder(requireContext())
-                .data(uri)
-                .memoryCacheKey("prev_$uri")
-                .build()
-            val cachedHighResDrawable = imageLoader.memoryCache?.get(highResRequest.memoryCacheKey!!)
-            val placeholderDrawable = cachedHighResDrawable?.bitmap?.toDrawable(resources)
-
-            Log.i("Preview", "cache key: ${highResRequest.memoryCacheKey}")
-
-            if (cachedHighResDrawable != null) {
-                imageView.load(uri, imageLoader) {
-                    placeholder(placeholderDrawable)
-                    error(R.drawable.ic_image_load_error)
-                    crossfade(true)
-                    allowRgb565(true)
-                }
-            } else {
-                imageView.load(uri, imageLoader) {
-                    placeholder(R.drawable.ic_image_loading)
-                    error(R.drawable.ic_image_load_error)
-                    crossfade(true)
-                    allowRgb565(true)
-                }
+            val placeholder = getCachedPreview(uri, imageLoader)
+            imageView.load(uri, imageLoader) {
+                memoryCacheKey(CacheHelper.getFullViewCacheKey(uri))
+                memoryCachePolicy(CachePolicy.ENABLED)
+                setPlaceholder(placeholder, R.drawable.ic_image_loading)
+                error(R.drawable.ic_image_load_error)
+                crossfade(true)
+                allowRgb565(true)
             }
 
             imageView.visibility = View.VISIBLE
@@ -83,6 +71,20 @@ class PreviewDialogFragment : DialogFragment() {
         view.setOnClickListener { dismiss() }
 
         return view
+    }
+
+    private fun getCachedPreview(uri: Uri, imageLoader: ImageLoader): Drawable? {
+        val memoryCacheKey = MemoryCache.Key(CacheHelper.getPreviewCacheKey(uri))
+        val cachedHighResDrawable = imageLoader.memoryCache?.get(memoryCacheKey)
+        return cachedHighResDrawable?.bitmap?.toDrawable(resources)
+    }
+
+    private fun ImageRequest.Builder.setPlaceholder(placeholder: Drawable?, fallbackRes: Int): ImageRequest.Builder {
+        return if (placeholder != null) {
+            placeholder(placeholder)
+        } else {
+            placeholder(fallbackRes)
+        }
     }
 
     override fun onStart() {

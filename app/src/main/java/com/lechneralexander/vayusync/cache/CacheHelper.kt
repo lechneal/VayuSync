@@ -29,6 +29,20 @@ class CacheHelper {
             }
         }
 
+        fun getThumbnailCacheKey(uri: Uri): String {
+            return "thumb_$uri"
+        }
 
+        fun getPreviewCacheKey(uri: Uri): String {
+            return "prev_$uri"
+        }
+
+        fun getFullViewCacheKey(uri: Uri): String {
+            return "full_$uri"
+        }
+
+        fun getDiskCacheKey(uri: Uri): String {
+            return uri.lastPathSegment?.replace("/", "_") ?: ""
+        }
     }
 }
