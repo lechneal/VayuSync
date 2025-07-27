@@ -7,12 +7,12 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
 import android.widget.VideoView
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.DialogFragment
 import coil.load
 import coil.request.ImageRequest
+import com.github.chrisbanes.photoview.PhotoView
 
 class PreviewDialogFragment : DialogFragment() {
 
@@ -46,7 +46,7 @@ class PreviewDialogFragment : DialogFragment() {
             playerView.visibility = View.VISIBLE
         } else {
             Log.d("Preview", "Loading image: $uri, mime: $mime")
-            val imageView = view.findViewById<ImageView>(R.id.fullImageView)
+            val imageView = view.findViewById<PhotoView>(R.id.fullImageView)
             val imageLoader = (requireContext().applicationContext as VayuApp).getImageLoader()
 
             //TODO consolidate cache key
@@ -77,6 +77,7 @@ class PreviewDialogFragment : DialogFragment() {
             }
 
             imageView.visibility = View.VISIBLE
+            imageView.setOnViewTapListener { _, _, _ -> dismiss() }
         }
 
         view.setOnClickListener { dismiss() }
