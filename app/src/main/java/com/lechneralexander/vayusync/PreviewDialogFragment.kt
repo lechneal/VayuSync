@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.MediaController
 import android.widget.VideoView
 import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.DialogFragment
@@ -49,6 +50,11 @@ class PreviewDialogFragment : DialogFragment() {
             playerView.setVideoURI(uri)
             playerView.start()
             playerView.visibility = View.VISIBLE
+
+            val mediaController = MediaController(requireContext())
+            mediaController.setAnchorView(playerView)
+            mediaController.visibility = View.VISIBLE
+            playerView.setMediaController(mediaController)
         } else {
             Log.d("Preview", "Loading image: $uri, mime: $mime")
             val imageView = view.findViewById<PhotoView>(R.id.fullImageView)
