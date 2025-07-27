@@ -203,6 +203,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         val docId = DocumentsContract.getTreeDocumentId(destUri)
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(destUri, docId)
 
+
         contentResolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use {
             while (it.moveToNext()) {
                 existing.add(it.getString(0))
@@ -279,7 +280,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             // Query the children of the current directory
             context.contentResolver.query(
                 childrenUri,
-                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_MIME_TYPE),
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
                 null,
                 null,
                 null
@@ -287,6 +288,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 while (cursor.moveToNext()) {
                     val docId = cursor.getString(0)
                     val mimeType = cursor.getString(1)
+                    val fileName = cursor.getString(2)
 
                     // Construct the URI for the found item
                     val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
@@ -299,8 +301,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                             }
                             // If it's an image, add it to our results list
                             SUPPORTED_MIME_TYPES.contains(mimeType) -> {
-                                val name = getFileName(docUri)
-                                foundImages.add(ImageInfo(docUri, mimeType, Orientation.UNDEFINED, copiedNames.contains(name)))
+                                foundImages.add(ImageInfo(docUri, mimeType, Orientation.UNDEFINED, copiedNames.contains(fileName)))
                             }
                         }
                     }
@@ -636,12 +637,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private fun getFileName(uri: Uri): String? {
         var result: String? = null
         if (uri.scheme == "content") {
-            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    val columnIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (columnIndex != -1) {
-                        result = cursor.getString(columnIndex)
-                    }
+                    result = cursor.getString(0)
                 }
             }
         }
