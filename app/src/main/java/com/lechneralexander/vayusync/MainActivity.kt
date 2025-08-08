@@ -601,7 +601,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         val newFileUri = DocumentsContract.createDocument(
                             contentResolver,
                             destinationFolderDocUri!!, // Use the Document URI here
-                            "image/jpeg",
+                            image.mimeType,
                             fileName
                         )
 
