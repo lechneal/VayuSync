@@ -25,11 +25,14 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.exifinterface.media.ExifInterface
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import coil.ImageLoader
+import coil.dispose
 import coil.load
 import coil.request.CachePolicy
 import coil.request.Parameters
@@ -42,8 +45,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import androidx.core.content.edit
-import androidx.core.net.toUri
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
     companion object {
@@ -55,6 +56,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private val SUPPORTED_MIME_TYPES = arrayOf("image/jpeg", "image/jpg", "video/quicktime", "video/mp4")
 
+    private lateinit var loadingProgressBar: ProgressBar
     private lateinit var recyclerView: RecyclerView
     private lateinit var selectSourceFolderButton: Button
     private lateinit var selectDestinationFolderButton: Button
@@ -79,6 +81,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         val toolbar: Toolbar = findViewById(R.id.toolbar)
         setSupportActionBar(toolbar)
 
+        loadingProgressBar = findViewById(R.id.loadingProgressBar)
         copyProgressBar = findViewById(R.id.copyProgressBar)
 
         setupRecyclerView()
@@ -202,7 +205,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         val docId = DocumentsContract.getTreeDocumentId(destUri)
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(destUri, docId)
 
-
         contentResolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use {
             while (it.moveToNext()) {
                 existing.add(it.getString(0))
@@ -311,6 +313,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     private fun loadImages(folderUri: Uri) {
+        scope.launch(Dispatchers.Main) {
+            loadingProgressBar.visibility = View.VISIBLE
+            recyclerView.visibility = View.GONE
+        }
+
         scope.launch(Dispatchers.IO) {
             val images = listImageFilesFromUri(folderUri)
             val sortedImages = images.sortedBy { it.uri.toString() }.reversed()
@@ -319,11 +326,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 imageInfos.clear()
                 imageInfos.addAll(sortedImages)
                 adapter.notifyItemRangeInserted(0, images.size)
+
+                recyclerView.scrollToPosition(0)
+                recyclerView.visibility = View.VISIBLE
+                loadingProgressBar.visibility = View.GONE
+
                 if (imageInfos.isEmpty()) {
                     Toast.makeText(this@MainActivity, "No images found in the selected folder.", Toast.LENGTH_LONG).show()
-                } else {
-                    // Scroll to top after loading new folder
-                    recyclerView.scrollToPosition(0)
                 }
             }
 
@@ -430,6 +439,31 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             holder.bind(imageInfo, isSelected)
         }
 
+        override fun onViewRecycled(holder: ViewHolder) {
+            super.onViewRecycled(holder)
+            holder.cancelPendingPreview();
+        }
+
+        fun cancelAllPendingPreviews() {
+            // iterate visible view holders and cancel (uses recyclerView from enclosing Activity)
+            val lm = recyclerView.layoutManager as? GridLayoutManager ?: return
+            val first = lm.findFirstVisibleItemPosition().coerceAtLeast(0)
+            val last = lm.findLastVisibleItemPosition().coerceAtLeast(first)
+            for (i in first..last) {
+                (recyclerView.findViewHolderForAdapterPosition(i) as? ViewHolder)?.cancelPendingPreview()
+            }
+        }
+
+        fun restartVisiblePreviews() {
+            val lm = (recyclerView.layoutManager as? GridLayoutManager) ?: return
+            val first = lm.findFirstVisibleItemPosition().coerceAtLeast(0)
+            val last = lm.findLastVisibleItemPosition().coerceAtLeast(first)
+            for (pos in first..last) {
+                val holder = recyclerView.findViewHolderForAdapterPosition(pos) as? ViewHolder ?: continue
+                onBindViewHolder(holder, pos)
+            }
+        }
+
         override fun getItemCount(): Int = images.size
 
         inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -457,6 +491,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
 
+            fun cancelPendingPreview() {
+                this.imageView.dispose();
+                this.imageView.setImageResource(R.drawable.ic_type_video)
+            }
+
             fun bind(imageInfo: ImageInfo, isSelected: Boolean) {
                 if (isSelected) {
                     selectionBadge.visibility = View.VISIBLE
@@ -473,8 +512,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             private fun showPreview(imageUri: Uri) {
-                PreviewDialogFragment.newInstance(imageUri)
-                    .show(this@MainActivity.supportFragmentManager, "preview")
+                val dialog = PreviewDialogFragment.newInstance(imageUri)
+                dialog.show(this@MainActivity.supportFragmentManager, "preview")
+                this@MainActivity.supportFragmentManager.setFragmentResultListener("preview_closed", this@MainActivity) { _, _ ->
+                    this@ImageAdapter.restartVisiblePreviews()
+                }
+
+                this@ImageAdapter.cancelAllPendingPreviews();
             }
 
             private fun loadMediaTypeIcon(image: ImageInfo) {

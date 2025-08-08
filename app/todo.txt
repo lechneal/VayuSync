@@ -1,17 +1,17 @@
-- image preview
-    - add image EXIF info
-    - also allow moving to next/prev image
-    - preload next/prev image
-    - animation upon opening
-- make scrollbar draggable
-    - https://github.com/timusus/RecyclerView-FastScroll
-    - https://github.com/zhanghai/AndroidFastScroll
-- allow to select sorting field
 - after clicking on copying, show a spinner or something on the single images to indicate they're being copied
     - allow a new selection and copy process in the meanwhile
     - it should be possible to continuously select and copy new files
     - show some kind of progress bar based on bytes
     - have the progress bar also show the estimated remaining time
+- make scrollbar draggable
+    - https://github.com/timusus/RecyclerView-FastScroll
+    - https://github.com/zhanghai/AndroidFastScroll
+    - show thumb info based on scrolling
+- allow to select sorting field
+- image preview
+    - also allow moving to next/prev image
+    - preload next/prev image
+    - animation upon opening
 - if deselecting all (e.g. going back) add support to restore previous selection (e.g. via button)
 
 
@@ -26,3 +26,10 @@ Done:
     - make zoom-eable
     - use memory-cached preview image as placeholder
     - video controls
+    - add image EXIF info
+- bug
+    - when copying movies, jpg is appended
+- performance
+    - show loading spinner during the initial load
+    - abort image loads when opening fragment
+    - abort image loads during scrolling

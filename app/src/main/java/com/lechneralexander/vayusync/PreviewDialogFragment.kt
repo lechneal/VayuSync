@@ -1,6 +1,7 @@
 package com.lechneralexander.vayusync
 
 import android.app.Dialog
+import android.content.DialogInterface
 import android.graphics.drawable.Drawable
 import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
@@ -144,5 +145,10 @@ class PreviewDialogFragment : DialogFragment() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         )
+    }
+
+    override fun onDismiss(dialog: DialogInterface) {
+        super.onDismiss(dialog)
+        parentFragmentManager.setFragmentResult("preview_closed", Bundle())
     }
 }
