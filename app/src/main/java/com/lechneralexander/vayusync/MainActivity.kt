@@ -494,7 +494,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
             fun cancelPendingPreview() {
                 this.imageView.dispose();
-                this.imageView.setImageResource(R.drawable.ic_type_video)
             }
 
             fun bind(imageInfo: ImageInfo, isSelected: Boolean) {
