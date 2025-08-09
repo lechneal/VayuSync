@@ -135,8 +135,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             uri?.let { destUri ->
                 contentResolver.takePersistableUriPermission(destUri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                 saveDestinationFolderUri(destUri)
+                Toast.makeText(this, "Output folder set: $destUri", Toast.LENGTH_SHORT).show()
                 updateAlreadyStoredImages()
-                Toast.makeText(this, "Output folder set.", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -186,9 +186,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private fun updateAlreadyStoredImages() {
         val outputUri = getSavedDestinationFolder()
-        val copiedNames = outputUri?.let { listExistingFilenames(it) } ?: emptySet()
 
         scope.launch(Dispatchers.IO) {
+            val copiedNames = outputUri?.let { listExistingFilenames(it) } ?: emptySet()
+
             imageInfos.forEachIndexed { index, image ->
                 val name = getFileName(image.uri)
                 image.copied = copiedNames.contains(name)
@@ -332,7 +333,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 loadingProgressBar.visibility = View.GONE
 
                 if (imageInfos.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "No images found in the selected folder.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "No images found in the selected folder: $folderUri", Toast.LENGTH_LONG).show()
                 }
             }
 
