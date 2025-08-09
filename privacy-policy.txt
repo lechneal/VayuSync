@@ -1,0 +1,8 @@
+Privacy Policy for VayuSync
+
+VayuSync is designed with your privacy as a top priority.
+- No Data Caollection: The app does not collect, store, or transmit any of your personal data or files.
+- Offline Functionality: All file operations (previewing, copying) happen exclusively on your device. The app does not require an internet connection and never sends your photos or videos to any server.
+- Local Storage Only: The app only saves settings (like your chosen folders) and cached image previews on your device's local storage to improve performance. This data is never shared.
+
+Your files are your files. Period.
