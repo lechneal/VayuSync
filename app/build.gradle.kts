@@ -12,8 +12,8 @@ android {
         applicationId = "com.lechneralexander.vayusync"
         minSdk = 34
         targetSdk = 36
-        versionCode = 16
-        versionName = "1.14"
+        versionCode = 17
+        versionName = "1.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
