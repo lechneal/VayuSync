@@ -30,8 +30,8 @@
         android:layout_gravity="bottom|start"
         android:layout_margin="8dp"
         android:src="@drawable/ic_type_video"
-        app:tint="?attr/colorOnPrimary"
         android:alpha="0.8"
+        app:tint="?attr/colorOnPrimary"
         android:background="?attr/colorPrimary"
         android:visibility="gone" />
 </FrameLayout>
