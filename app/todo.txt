@@ -12,9 +12,7 @@
     - revisit media icons: border instead of background?
     - lighter placeholder images / reuse icon?
     - about page
-    - smooth image preview:
-        - use thumbnail & preview memory cache key as placeholder: https://coil-kt.github.io/coil/recipes/#using-a-memory-cache-key-as-a-placeholder
-        - skip thumbnail if mem cache is availble? Is this even necessary?
+    - rething EXIF data (only show some, on click show next?)
 - action bar (replacing header) / settings:
     - menu,
     - file type filter in settings? allow RAW?
@@ -49,3 +47,7 @@ Done:
  - make scrollbar draggable
      - use library, do make thumb size independent of actual list items
      - https://github.com/zhanghai/AndroidFastScroll
+- improve design
+    - smooth image preview:
+        - use thumbnail & preview memory cache key as placeholder: https://coil-kt.github.io/coil/recipes/#using-a-memory-cache-key-as-a-placeholder
+        - skip thumbnail if mem cache is availble? Is this even necessary?

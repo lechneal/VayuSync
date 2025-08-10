@@ -3,7 +3,6 @@ package com.lechneralexander.vayusync
 import android.app.Dialog
 import android.content.DialogInterface
 import android.graphics.drawable.Drawable
-import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -14,12 +13,11 @@ import android.widget.MediaController
 import android.widget.TextView
 import android.widget.VideoView
 import androidx.core.graphics.drawable.toDrawable
+import androidx.exifinterface.media.ExifInterface
 import androidx.fragment.app.DialogFragment
 import coil.ImageLoader
 import coil.load
 import coil.memory.MemoryCache
-import coil.request.CachePolicy
-import coil.request.ImageRequest
 import com.github.chrisbanes.photoview.PhotoView
 import com.lechneralexander.vayusync.cache.CacheHelper
 
@@ -63,14 +61,12 @@ class PreviewDialogFragment : DialogFragment() {
             val imageView = view.findViewById<PhotoView>(R.id.fullImageView)
             val imageLoader = (requireContext().applicationContext as VayuApp).getImageLoader()
 
-            val placeholder = getCachedPreview(uri, imageLoader)
             imageView.load(uri, imageLoader) {
                 memoryCacheKey(CacheHelper.getFullViewCacheKey(uri))
-                memoryCachePolicy(CachePolicy.ENABLED)
-                setPlaceholder(placeholder, R.drawable.ic_image_loading)
+                placeholderMemoryCacheKey(CacheHelper.getPreviewCacheKey(uri))
+                placeholder(R.drawable.ic_image_loading)
                 error(R.drawable.ic_image_load_error)
                 crossfade(true)
-                allowRgb565(true)
             }
 
             imageView.visibility = View.VISIBLE
@@ -129,14 +125,6 @@ class PreviewDialogFragment : DialogFragment() {
         val memoryCacheKey = MemoryCache.Key(CacheHelper.getPreviewCacheKey(uri))
         val cachedHighResDrawable = imageLoader.memoryCache?.get(memoryCacheKey)
         return cachedHighResDrawable?.bitmap?.toDrawable(resources)
-    }
-
-    private fun ImageRequest.Builder.setPlaceholder(placeholder: Drawable?, fallbackRes: Int): ImageRequest.Builder {
-        return if (placeholder != null) {
-            placeholder(placeholder)
-        } else {
-            placeholder(fallbackRes)
-        }
     }
 
     override fun onStart() {

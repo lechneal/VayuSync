@@ -1,16 +1,14 @@
 package com.lechneralexander.vayusync.fetchers
 import android.content.ContentResolver
-import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
-import android.util.Log
 import android.util.Size
+import androidx.core.graphics.drawable.toDrawable
 import coil.ImageLoader
 import coil.decode.DataSource
 import coil.fetch.DrawableResult
 import coil.fetch.FetchResult
 import coil.fetch.Fetcher
 import coil.request.Options
-import coil.size.pxOrElse
 
 class ThumbnailFetcher(
     private val contentResolver: ContentResolver,
@@ -20,20 +18,14 @@ class ThumbnailFetcher(
 
     override suspend fun fetch(): FetchResult {
         // Get the target size from the request's parameters.
-        val requestedSize = options.size
         val targetSize = options.parameters.value("target_size") as? Int ?: 256
 
         // Request a higher-res thumbnail from the system to get better quality.
         val bitmap = contentResolver.loadThumbnail(data, Size(targetSize, targetSize), null)
 
-        val isActuallySampled = bitmap.width < requestedSize.width.pxOrElse { Int.MAX_VALUE } ||
-                bitmap.height < requestedSize.height.pxOrElse { Int.MAX_VALUE }
-
-        Log.d("ThumbnailFetcher", "Loaded ${bitmap.width}x${bitmap.height}, requested ${requestedSize.width.pxOrElse { -1 }}, isActuallySampled: ${isActuallySampled}")
-
         return DrawableResult(
-            drawable = BitmapDrawable(options.context.resources, bitmap),
-            isSampled = isActuallySampled,
+            drawable = bitmap.toDrawable(options.context.resources),
+            isSampled = false,
             dataSource = DataSource.DISK
         )
     }

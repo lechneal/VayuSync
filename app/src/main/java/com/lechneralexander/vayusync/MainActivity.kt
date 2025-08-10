@@ -34,7 +34,6 @@ import androidx.recyclerview.widget.SimpleItemAnimator
 import coil.ImageLoader
 import coil.dispose
 import coil.load
-import coil.request.CachePolicy
 import coil.request.Parameters
 import coil.size.ViewSizeResolver
 import com.lechneralexander.vayusync.cache.CacheHelper
@@ -573,12 +572,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             ) {
                 imageView.load(imageUri, getImageLoader()) {
                     memoryCacheKey(CacheHelper.getThumbnailCacheKey(imageUri))
-                    memoryCachePolicy(CachePolicy.ENABLED)
                     placeholder(R.drawable.ic_image_loading)
                     error(R.drawable.ic_image_load_error)
                     size(ViewSizeResolver(imageView))
                     crossfade(true)
-                    allowRgb565(true)
                     parameters(Parameters().newBuilder()
                         .set("use_thumbnail", true)
                         .build()
@@ -597,11 +594,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private fun loadPreview(imageUri: Uri) {
                 imageView.load(imageUri, getImageLoader()) {
                     memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))
-                    memoryCachePolicy(CachePolicy.ENABLED)
-                    placeholder(imageView.drawable)
+                    placeholderMemoryCacheKey(CacheHelper.getThumbnailCacheKey(imageUri))
                     error(R.drawable.ic_image_load_error)
                     size(ViewSizeResolver(imageView))
-                    allowRgb565(true)
                     crossfade(true)
 
                     listener(
@@ -625,12 +620,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 if (cachedFile.exists()) {
                     imageView.load(cachedFile, getImageLoader()) {
                         memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))
-                        memoryCachePolicy(CachePolicy.ENABLED)
-                        placeholder(imageView.drawable)
+                        placeholder(R.drawable.ic_image_loading)
                         error(R.drawable.ic_image_load_error)
                         size(ViewSizeResolver(imageView))
                         crossfade(true)
-                        allowRgb565(true)
                     }
                     return true
                 }
