@@ -54,6 +54,7 @@ dependencies {
     implementation(libs.coil)
     implementation(libs.photoview)
     implementation(libs.androidx.exifinterface)
+    implementation(libs.library)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

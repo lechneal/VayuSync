@@ -3,16 +3,29 @@
     - it should be possible to continuously select and copy new files
     - show some kind of progress bar based on bytes
     - have the progress bar also show the estimated remaining time
-- make scrollbar draggable
-    - https://github.com/timusus/RecyclerView-FastScroll
-    - https://github.com/zhanghai/AndroidFastScroll
-    - show thumb info based on scrolling
-- allow to select sorting field
+- improve design
+    - menu items?
+    - hide source/destination after setting?
+    - add icons to buttons
+    - use icon as loading spinner
+    - colors?
+    - revisit media icons: border instead of background?
+    - lighter placeholder images / reuse icon?
+    - about page
+    - smooth image preview:
+        - use thumbnail & preview memory cache key as placeholder: https://coil-kt.github.io/coil/recipes/#using-a-memory-cache-key-as-a-placeholder
+        - skip thumbnail if mem cache is availble? Is this even necessary?
+- action bar (replacing header) / settings:
+    - menu,
+    - file type filter in settings? allow RAW?
+    - Sortby: also show info in scrollbar popup
+    - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
+    - recyclerview col count for landscape and larger screens? Configurable in settings?
 - image preview
     - also allow moving to next/prev image
     - preload next/prev image
-    - animation upon opening
-- if deselecting all (e.g. going back) add support to restore previous selection (e.g. via button)
+    - animation upon opening: https://coil-kt.github.io/coil/recipes/#shared-element-transitions
+- add initial walkthrough
 
 
 Done:
@@ -33,3 +46,6 @@ Done:
     - show loading spinner during the initial load
     - abort image loads when opening fragment
     - abort image loads during scrolling
+ - make scrollbar draggable
+     - use library, do make thumb size independent of actual list items
+     - https://github.com/zhanghai/AndroidFastScroll

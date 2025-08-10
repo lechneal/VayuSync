@@ -44,6 +44,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import java.io.File
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
@@ -224,6 +225,17 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         recyclerView.layoutManager = gridLayoutManager // Use the modified manager
         adapter = ImageAdapter(imageInfos)
         recyclerView.adapter = adapter
+
+        //setup fastscroller
+        FastScrollerBuilder(recyclerView)
+            .useMd2Style()
+            .setTrackDrawable(ContextCompat.getDrawable(this, R.drawable.line_drawable)!!)
+            .setThumbDrawable(ContextCompat.getDrawable(this, R.drawable.thumb_drawable)!!)
+            .setPopupTextProvider { _, position ->
+                // Return the popup text for the item at this position
+                "$position / ${imageInfos.size}"
+            }
+            .build();
     }
 
     private fun checkPermissions(): Boolean {
