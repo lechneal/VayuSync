@@ -1,14 +1,15 @@
-- continuous copy
-    - reset copying image state and delete current image transfer upon cancel
-    - Add status in the android notifications
+- header:
+    - Sortby: also show info in scrollbar popup
+    - file type filter in settings? allow RAW?
 - Advanced copy features
-    - Copy while app in background
+    - Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
 - improve design
     - menu items?
     - hide source/destination after setting?
     - add icons to buttons
+    - different button color or text if folder not selected
     - use icon as loading spinner
     - colors?
     - revisit media icons: border instead of background?
@@ -16,14 +17,14 @@
     - about page
     - rething EXIF data (only show some, on click show next?)
     - implement recommended actiosn by google
-- menu / settings:
+- menu with settings:
     - menu
     - file type filter in settings? allow RAW?
     - recyclerview col count for landscape and larger screens? Configurable in settings?
+    - disk cache size, mem cache size?
 - image preview
     - also allow moving to next/prev image
     - preload next/prev image
-    - animation upon opening: https://coil-kt.github.io/coil/recipes/#shared-element-transitions
 - add initial walkthrough
 
 
@@ -61,6 +62,7 @@ Done:
     - after submitting images, exit from selection view
     - dynamically update image status. Use state and notify
     - Add cancel
+    - reset copying image state and delete current image transfer upon cancel
 - menu / settings
     - Sortby + store selection: also show info in scrollbar popup
     - show info, toggle in menu

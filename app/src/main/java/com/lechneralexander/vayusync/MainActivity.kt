@@ -8,7 +8,6 @@ import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
-import android.provider.MediaStore
 import android.util.Log
 import android.view.ActionMode
 import android.view.LayoutInflater
@@ -83,6 +82,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private lateinit var adapter: ImageAdapter
     // --- Use Uri instead of File ---
     private val imageInfos = mutableListOf<ImageInfo>()
+    private var alreadyCopiedImages = HashSet<String>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
 
@@ -94,6 +94,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private lateinit var etaText: TextView
     private lateinit var statusText: TextView
     private lateinit var cancelCopyButton: ImageButton
+    private lateinit var pauseButton: ImageButton
+    private lateinit var resumeButton: ImageButton
     private lateinit var sourceFolderPickerLauncher: ActivityResultLauncher<Uri?>
     private lateinit var destFolderPickerLauncher: ActivityResultLauncher<Uri?>
 
@@ -159,15 +161,26 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         etaText = findViewById(R.id.etaText)
         statusText = findViewById(R.id.statusText)
         cancelCopyButton = findViewById(R.id.cancelCopyButton)
+        pauseButton = findViewById(R.id.pauseButton)
+        resumeButton = findViewById(R.id.resumeButton)
 
         fileCopier = ContentResolverFileCopier(contentResolver)
         copyViewModel = CopyViewModel(fileCopier)
 
         cancelCopyButton.setOnClickListener {
-            copyViewModel.cancelCopy()
-            Toast.makeText(this, "Copy cancelled", Toast.LENGTH_SHORT).show()
-            copyProgressContainer.visibility = View.GONE
-            //TODO update image data and adapter to reset status: call same logic as after selecting output folder
+            showCopyCancelConfirmationDialog {
+                copyViewModel.cancelCopy()
+                Toast.makeText(this, "Copy cancelled", Toast.LENGTH_SHORT).show()
+                copyProgressContainer.visibility = View.GONE
+                refreshCopyStatus()
+                actionMode?.finish()
+            }
+        }
+        pauseButton.setOnClickListener {
+            copyViewModel.pauseCopy()
+        }
+        resumeButton.setOnClickListener {
+            copyViewModel.resumeCopy()
         }
 
         lifecycleScope.launch {
@@ -183,6 +196,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     return@collectLatest
                 }
 
+                pauseButton.visibility = if (!progress.paused) View.VISIBLE else View.GONE
+                resumeButton.visibility = if (progress.paused) View.VISIBLE else View.GONE
                 copyProgressBar.max =
                     progress.totalBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 copyProgressBar.progress =
@@ -203,9 +218,20 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             copyViewModel.getCopiedImage().collect { copiedImageInfo ->
                 val position = imageInfos.indexOfFirst { it.uri == copiedImageInfo.uri }
                 copiedImageInfo.copyStatus = CopyStatus.COPIED
+                alreadyCopiedImages.add(copiedImageInfo.fileName)
                 if (position != -1) {
                     adapter.notifyItemChanged(position)
                 }
+            }
+        }
+    }
+
+    private fun refreshCopyStatus() {
+        imageInfos.forEachIndexed { index, image ->
+            val newStatus = if (alreadyCopiedImages.contains(image.fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
+            if (image.copyStatus != newStatus) {
+                image.copyStatus = newStatus
+                adapter.notifyItemChanged(index)
             }
         }
     }
@@ -358,7 +384,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 return uri
             } else {
                 // We lost permission, prompt user to select again
-                Toast.makeText(this, "Permission for destination folder lost. Please select again.", Toast.LENGTH_LONG).show()
+                scope.launch(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Permission for destination folder lost. Please select again.", Toast.LENGTH_LONG).show()
+                }
             }
         }
         return null
@@ -379,20 +407,19 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private fun updateAlreadyStoredImages() {
         val outputUri = getSavedDestinationFolder()
 
+        if (outputUri == null) {
+            return
+        }
         scope.launch(Dispatchers.IO) {
-            val copiedNames = outputUri?.let { listExistingFilenames(it) } ?: emptySet()
-
-            imageInfos.forEachIndexed { index, image ->
-                image.copyStatus = if (copiedNames.contains(image.fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
-            }
+            updateAlreadyCopiedImages(outputUri)
             withContext(Dispatchers.Main) {
-                adapter.notifyItemRangeChanged(0, imageInfos.size)
+                refreshCopyStatus()
             }
         }
     }
 
-    private fun listExistingFilenames(destUri: Uri): Set<String> {
-        val existing = mutableSetOf<String>()
+    private fun listExistingFilenames(destUri: Uri): HashSet<String> {
+        val existing = HashSet<String>()
         val docId = DocumentsContract.getTreeDocumentId(destUri)
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(destUri, docId)
 
@@ -474,7 +501,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private fun listImageFilesFromUri(treeUri: Uri): List<ImageInfo> {
         val outputUri = getSavedDestinationFolder()
-        val copiedNames = outputUri?.let { listExistingFilenames(it) } ?: emptySet()
+        updateAlreadyCopiedImages(outputUri)
 
         val context = this
         val foundImages = mutableListOf<ImageInfo>()
@@ -518,7 +545,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
                     // Construct the URI for the found item
                     val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                    val copyStatus = if (copiedNames.contains(fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
+                    val copyStatus = if (alreadyCopiedImages.contains(fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
 
                     if (mimeType != null) {
                         when {
@@ -544,6 +571,15 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
         }
         return foundImages
+    }
+
+    private fun updateAlreadyCopiedImages(outputUri: Uri?) {
+        if (outputUri == null) {
+            alreadyCopiedImages.clear()
+            return
+        }
+
+        alreadyCopiedImages = listExistingFilenames(outputUri!!)
     }
 
     private fun loadImages(folderUri: Uri) {
@@ -617,10 +653,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             images.forEach {
                 it.orientation = readOrientation(it)
             }
-        }
-        images.forEachIndexed { index, image ->
-            if (image.orientation != Orientation.UNDEFINED) {
-                adapter.notifyItemChanged(index)
+            scope.launch(Dispatchers.Main) {
+                adapter.notifyItemRangeChanged(0, images.size)
             }
         }
     }
@@ -930,10 +964,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun copyFilesTo(images: List<ImageInfo>, destUri: Uri) {
+    private fun copyFilesTo(images: List<ImageInfo>, destinationFolder: Uri) {
         val imagesToCopy = images.map {
             it.copyStatus = CopyStatus.COPYING
-            ImageToCopy(it, it.uri,getDestinationUri(it, destUri)!!)
+            ImageToCopy(it, destinationFolder)
         }
         copyViewModel.enqueueFiles(imagesToCopy)
         adapter.clearSelections()
@@ -943,20 +977,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private fun updateActionModeTitle() {
         val selectedCount = adapter.getSelectedCount()
         actionMode?.title = "$selectedCount selected"
-    }
-
-    private fun getDestinationUri(image: ImageInfo, destinationTreeUri: Uri): Uri? {
-        val docId = DocumentsContract.getTreeDocumentId(destinationTreeUri)
-        val destinationFolderDocUri = DocumentsContract.buildDocumentUriUsingTree(destinationTreeUri, docId)
-        val fileName = image.fileName ?: "file_${System.currentTimeMillis()}"
-
-        // Now, use the corrected Document URI when creating the new file.
-        return DocumentsContract.createDocument(
-            contentResolver,
-            destinationFolderDocUri, // Use the Document URI here
-            image.mimeType,
-            fileName
-        )
     }
 
     // --- ActionMode.Callback Implementation ---
@@ -974,9 +994,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
         when (item?.itemId) {
             R.id.action_copy -> {
-                val destUri = getSavedDestinationFolder()
-                if (destUri != null) {
-                    showCopyConfirmationDialog(destUri)
+                val destinationFolder = getSavedDestinationFolder()
+                if (destinationFolder != null) {
+                    showCopyConfirmationDialog(destinationFolder)
                 } else {
                     Toast.makeText(this, "Please select output folder first", Toast.LENGTH_SHORT).show()
                     destFolderPickerLauncher.launch(null)
@@ -991,14 +1011,25 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         return false
     }
 
-    private fun showCopyConfirmationDialog(destUri: Uri) {
+    private fun showCopyConfirmationDialog(destinationFolder: Uri) {
         val selectedCount = adapter.getSelectedCount()
         AlertDialog.Builder(this)
-            .setMessage("Copy $selectedCount files to:\n$destUri")
+            .setMessage("Copy $selectedCount files to:\n$destinationFolder")
             .setPositiveButton("Copy") { _, _ ->
-                copyFilesTo(adapter.getSelectedItems(), destUri)
+                copyFilesTo(adapter.getSelectedItems(), destinationFolder)
             }
             .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showCopyCancelConfirmationDialog(confirmationCallback: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("Cancel Copy?")
+            .setMessage("This will stop copying the remaining files.")
+            .setPositiveButton("Cancel Copy") { _, _ ->
+                confirmationCallback()
+            }
+            .setNegativeButton("Keep Copying", null)
             .show()
     }
 
