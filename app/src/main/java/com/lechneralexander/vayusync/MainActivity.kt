@@ -16,8 +16,11 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +31,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
@@ -37,14 +41,19 @@ import coil.load
 import coil.request.Parameters
 import coil.size.ViewSizeResolver
 import com.lechneralexander.vayusync.cache.CacheHelper
+import com.lechneralexander.vayusync.copy.ContentResolverFileCopier
+import com.lechneralexander.vayusync.copy.CopyViewModel
+import com.lechneralexander.vayusync.copy.ImageToCopy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import java.io.File
+import kotlin.math.ln
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
     companion object {
@@ -67,7 +76,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
 
     // -- copy
+    private lateinit var fileCopier: ContentResolverFileCopier
+    private lateinit var copyViewModel: CopyViewModel
+    private lateinit var copyProgressContainer: LinearLayout
     private lateinit var copyProgressBar: ProgressBar
+    private lateinit var etaText: TextView
+    private lateinit var statusText: TextView
+    private lateinit var cancelCopyButton: ImageButton
     private lateinit var sourceFolderPickerLauncher: ActivityResultLauncher<Uri?>
     private lateinit var destFolderPickerLauncher: ActivityResultLauncher<Uri?>
 
@@ -82,7 +97,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         setSupportActionBar(toolbar)
 
         loadingProgressBar = findViewById(R.id.loadingProgressBar)
-        copyProgressBar = findViewById(R.id.copyProgressBar)
 
         setupRecyclerView()
         setupSourceFolderPicker()
@@ -116,6 +130,82 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             loadSavedSourceFolderAndImages()
         } else {
             requestPermissions()
+        }
+
+        //Observe copy progress
+        copyProgressContainer = findViewById(R.id.copyProgressContainer)
+        copyProgressBar = findViewById(R.id.copyProgressBar)
+        etaText = findViewById(R.id.etaText)
+        statusText = findViewById(R.id.statusText)
+        cancelCopyButton = findViewById(R.id.cancelCopyButton)
+
+        fileCopier = ContentResolverFileCopier(contentResolver)
+        copyViewModel = CopyViewModel(fileCopier)
+
+        cancelCopyButton.setOnClickListener {
+            copyViewModel.cancelCopy()
+            Toast.makeText(this, "Copy cancelled", Toast.LENGTH_SHORT).show()
+            copyProgressContainer.visibility = View.GONE
+            //TODO update image data and adapter to reset status: call same logic as after selecting output folder
+        }
+
+        lifecycleScope.launch {
+            copyViewModel.getProgress().collectLatest { progress ->
+                if (progress.completed) {
+                    Toast.makeText(this@MainActivity, "Copied all files!", Toast.LENGTH_LONG).show()
+                    copyProgressContainer.visibility = View.GONE
+                    return@collectLatest
+                }
+
+                if (progress.totalBytes == 0L) {
+                    copyProgressContainer.visibility = View.GONE
+                    return@collectLatest
+                }
+
+                copyProgressBar.max =
+                    progress.totalBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                copyProgressBar.progress =
+                    progress.copiedBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+                etaText.text =
+                    if (progress.etaSeconds >= 0) "${formatDuration(progress.etaSeconds)} remaining"
+                    else "Calculating..."
+                statusText.text =
+                    "${formatBytes(progress.copiedBytes)}/${formatBytes(progress.totalBytes)} bytes (${
+                        formatBytes(progress.speed.toLong())
+                    }/s)"
+
+                copyProgressContainer.visibility = View.VISIBLE
+            }
+        }
+        lifecycleScope.launch {
+            copyViewModel.getCopiedImage().collect { copiedImageInfo ->
+                val position = imageInfos.indexOfFirst { it.uri == copiedImageInfo.uri }
+                copiedImageInfo.copyStatus = CopyStatus.COPIED
+                if (position != -1) {
+                    adapter.notifyItemChanged(position)
+                }
+            }
+        }
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        val unit = 1024
+        if (bytes < unit) return "$bytes B"
+        val exp = (ln(bytes.toDouble()) / ln(unit.toDouble())).toInt()
+        val prefix = "KMGTPE"[exp - 1]
+        return String.format("%.1f %sB", bytes / Math.pow(unit.toDouble(), exp.toDouble()), prefix)
+    }
+
+    fun formatDuration(seconds: Int): String {
+        return when {
+            seconds < 60 -> "$seconds s"
+            seconds < 3600 -> "${seconds / 60} min ${seconds % 60} s"
+            else -> {
+                val h = seconds / 3600
+                val m = (seconds % 3600) / 60
+                "$h h $m min"
+            }
         }
     }
 
@@ -191,12 +281,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             val copiedNames = outputUri?.let { listExistingFilenames(it) } ?: emptySet()
 
             imageInfos.forEachIndexed { index, image ->
-                val name = getFileName(image.uri)
-                image.copied = copiedNames.contains(name)
-
-                withContext(Dispatchers.Main) {
-                    adapter.notifyItemChanged(index)
-                }
+                image.copyStatus = if (copiedNames.contains(image.fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
+            }
+            withContext(Dispatchers.Main) {
+                adapter.notifyItemRangeChanged(0, imageInfos.size)
             }
         }
     }
@@ -293,7 +381,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             // Query the children of the current directory
             context.contentResolver.query(
                 childrenUri,
-                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_SIZE),
                 null,
                 null,
                 null
@@ -302,9 +391,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     val docId = cursor.getString(0)
                     val mimeType = cursor.getString(1)
                     val fileName = cursor.getString(2)
+                    val fileSize = cursor.getLong(3)
 
                     // Construct the URI for the found item
                     val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                    val copyStatus = if (copiedNames.contains(fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
 
                     if (mimeType != null) {
                         when {
@@ -314,7 +405,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                             }
                             // If it's an image, add it to our results list
                             SUPPORTED_MIME_TYPES.contains(mimeType) -> {
-                                foundImages.add(ImageInfo(docUri, mimeType, Orientation.UNDEFINED, copiedNames.contains(fileName)))
+                                foundImages.add(ImageInfo(docUri, fileName, fileSize, mimeType, Orientation.UNDEFINED, copyStatus))
                             }
                         }
                     }
@@ -355,13 +446,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private fun lazyLoadExifOrientation(images: List<ImageInfo>) {
         scope.launch(Dispatchers.IO) {
-            images.forEachIndexed { index, image ->
-                val orientation = readOrientation(image)
-                image.orientation = orientation
-
-                withContext(Dispatchers.Main) {
-                    adapter.notifyItemChanged(index)
-                }
+            images.forEach {
+                it.orientation = readOrientation(it)
+            }
+        }
+        images.forEachIndexed { index, image ->
+            if (image.orientation != Orientation.UNDEFINED) {
+                adapter.notifyItemChanged(index)
             }
         }
     }
@@ -508,18 +599,30 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             fun bind(imageInfo: ImageInfo, isSelected: Boolean) {
+                loadImage(imageInfo.uri)
+                loadMediaTypeIcon(imageInfo)
+                loadSelectionBadge(imageInfo, isSelected)
+            }
+
+            private fun loadSelectionBadge(
+                imageInfo: ImageInfo,
+                isSelected: Boolean
+            ) {
                 if (isSelected) {
+                    selectionBadge.setImageResource(R.drawable.ic_check_circle)
                     selectionBadge.visibility = View.VISIBLE
                     selectionBadge.alpha = 1f
-                } else if (imageInfo.copied) {
+                } else if (imageInfo.copyStatus == CopyStatus.COPIED) {
+                    selectionBadge.setImageResource(R.drawable.ic_check_circle)
                     selectionBadge.visibility = View.VISIBLE
                     selectionBadge.alpha = 0.5f
+                } else if (imageInfo.copyStatus == CopyStatus.COPYING) {
+                    selectionBadge.setImageResource(R.drawable.ic_image_loading)
+                    selectionBadge.visibility = View.VISIBLE
+                    selectionBadge.alpha = 1f
                 } else {
                     selectionBadge.visibility = View.GONE
                 }
-
-                loadImage(imageInfo.uri)
-                loadMediaTypeIcon(imageInfo)
             }
 
             private fun showPreview(imageUri: Uri) {
@@ -632,70 +735,33 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun copyFilesTo(images: List<ImageInfo>, destinationTreeUri: Uri) { // Renamed for clarity
-        scope.launch(Dispatchers.Main) {
-            copyProgressBar.visibility = View.VISIBLE
-            val fileCount = images.size
-            var successCount = 0
-
-            val docId = DocumentsContract.getTreeDocumentId(destinationTreeUri)
-            val destinationFolderDocUri = DocumentsContract.buildDocumentUriUsingTree(destinationTreeUri, docId)
-
-            withContext(Dispatchers.IO) {
-                images.forEach { image ->
-                    try {
-                        val fileName = getFileName(image.uri) ?: "file_${System.currentTimeMillis()}"
-
-                        // Now, use the corrected Document URI when creating the new file.
-                        val newFileUri = DocumentsContract.createDocument(
-                            contentResolver,
-                            destinationFolderDocUri!!, // Use the Document URI here
-                            image.mimeType,
-                            fileName
-                        )
-
-                        if (newFileUri != null) {
-                            contentResolver.openInputStream(image.uri)?.use { input ->
-                                contentResolver.openOutputStream(newFileUri)?.use { output ->
-                                    input.copyTo(output)
-                                    successCount++
-                                }
-                            }
-                        }
-
-                        //Update flag
-                        image.copied = true
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        // It's good practice to log or show an error for the failed file
-                    }
-                }
-            }
-
-            // Back on the Main thread
-            copyProgressBar.visibility = View.GONE
-            Toast.makeText(this@MainActivity, "Copied $successCount of $fileCount files", Toast.LENGTH_LONG).show()
-            actionMode?.finish() // Exit action mode after copy
+    private fun copyFilesTo(images: List<ImageInfo>, destUri: Uri) {
+        val imagesToCopy = images.map {
+            it.copyStatus = CopyStatus.COPYING
+            ImageToCopy(it, it.uri,getDestinationUri(it, destUri)!!)
         }
+        copyViewModel.enqueueFiles(imagesToCopy)
+        adapter.clearSelections()
+        updateActionModeTitle()
     }
 
-    private fun getFileName(uri: Uri): String? {
-        var result: String? = null
-        if (uri.scheme == "content") {
-            contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    result = cursor.getString(0)
-                }
-            }
-        }
-        if (result == null) {
-            result = uri.path
-            val cut = result?.lastIndexOf('/')
-            if (cut != -1) {
-                result = result?.substring(cut!! + 1)
-            }
-        }
-        return result
+    private fun updateActionModeTitle() {
+        val selectedCount = adapter.getSelectedCount()
+        actionMode?.title = "$selectedCount selected"
+    }
+
+    private fun getDestinationUri(image: ImageInfo, destinationTreeUri: Uri): Uri? {
+        val docId = DocumentsContract.getTreeDocumentId(destinationTreeUri)
+        val destinationFolderDocUri = DocumentsContract.buildDocumentUriUsingTree(destinationTreeUri, docId)
+        val fileName = image.fileName ?: "file_${System.currentTimeMillis()}"
+
+        // Now, use the corrected Document URI when creating the new file.
+        return DocumentsContract.createDocument(
+            contentResolver,
+            destinationFolderDocUri, // Use the Document URI here
+            image.mimeType,
+            fileName
+        )
     }
 
     // --- ActionMode.Callback Implementation ---
@@ -706,8 +772,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
-        val selectedCount = adapter.getSelectedCount()
-        mode?.title = "$selectedCount selected"
+        updateActionModeTitle()
         return true
     }
 
@@ -754,8 +819,4 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     fun getDiskCache(): File {
         return (applicationContext as VayuApp).getDiskCache()
     }
-
-    data class ImageInfo(val uri: Uri, val mimeType: String, var orientation: Orientation, var copied: Boolean)
-
-    enum class Orientation {PORTRAIT, LANDSCAPE, UNDEFINED}
 }
