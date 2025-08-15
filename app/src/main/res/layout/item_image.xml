@@ -27,7 +27,7 @@
         android:id="@+id/mediaTypeIcon"
         android:layout_width="12dp"
         android:layout_height="12dp"
-        android:layout_gravity="bottom|start"
+        android:layout_gravity="top|start"
         android:layout_margin="8dp"
         android:src="@drawable/ic_type_video"
         android:alpha="0.8"
