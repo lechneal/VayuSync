@@ -19,7 +19,6 @@
 - menu / settings:
     - menu
     - file type filter in settings? allow RAW?
-    - Sortby: also show info in scrollbar popup
     - recyclerview col count for landscape and larger screens? Configurable in settings?
 - image preview
     - also allow moving to next/prev image
@@ -62,3 +61,6 @@ Done:
     - after submitting images, exit from selection view
     - dynamically update image status. Use state and notify
     - Add cancel
+- menu / settings
+    - Sortby + store selection: also show info in scrollbar popup
+    - show info, toggle in menu

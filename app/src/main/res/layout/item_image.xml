@@ -33,5 +33,35 @@
         android:alpha="0.8"
         app:tint="?attr/colorOnPrimary"
         android:background="?attr/colorPrimary"
-        android:visibility="gone" />
+        android:visibility="visible" />
+
+    <!-- Info Overlay -->
+    <LinearLayout
+        android:id="@+id/infoOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#80000000"
+        android:orientation="vertical"
+        android:padding="4dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/infoFileName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:text="fileinfo"
+            android:maxLines="1"
+            android:ellipsize="middle"/>
+
+        <TextView
+            android:id="@+id/infoFileSizeAndDate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@android:color/white"
+            android:textSize="8sp"
+            android:text="1.2 MB - 2023-10-26" />
+    </LinearLayout>
 </FrameLayout>

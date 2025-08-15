@@ -8,6 +8,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.util.Log
 import android.view.ActionMode
 import android.view.LayoutInflater
@@ -53,6 +54,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import kotlin.math.ln
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
@@ -61,9 +64,17 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         private const val PREFS_NAME = "VayuSyncPrefs"
         private const val KEY_SOURCE_FOLDER_URI = "sourceFolderUri"
         private const val KEY_DESTINATION_FOLDER_URI = "destinationFolderUri"
+        private const val KEY_SHOW_IMAGE_INFO_OVERLAY = "showImageInfoOverlay"
+        private const val KEY_SORT_CRITERION = "sortCriterion"
+        private const val KEY_SORT_ORDER = "sortOrder"
+
+        private const val PAYLOAD_INFO_VISIBILITY_CHANGED = "PAYLOAD_INFO_VISIBILITY_CHANGED"
     }
 
     private val SUPPORTED_MIME_TYPES = arrayOf("image/jpeg", "image/jpg", "video/quicktime", "video/mp4")
+
+    private val currentSort = CurrentSort()
+    private var showImageInfoOverlay = false
 
     private lateinit var loadingProgressBar: ProgressBar
     private lateinit var recyclerView: RecyclerView
@@ -95,6 +106,15 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         val toolbar: Toolbar = findViewById(R.id.toolbar)
         setSupportActionBar(toolbar)
+
+        //Init prefs
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        showImageInfoOverlay = prefs.getBoolean(KEY_SHOW_IMAGE_INFO_OVERLAY, false)
+
+        val savedCriterionName = prefs.getString(KEY_SORT_CRITERION, SortCriterion.FILENAME.toString())
+        val savedOrderName = prefs.getString(KEY_SORT_ORDER, SortOrder.ASCENDING.toString())
+        currentSort.criterion = try { SortCriterion.valueOf(savedCriterionName!!) } finally { }
+        currentSort.order = try { SortOrder.valueOf(savedOrderName!!) } finally { }
 
         loadingProgressBar = findViewById(R.id.loadingProgressBar)
 
@@ -131,6 +151,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         } else {
             requestPermissions()
         }
+
 
         //Observe copy progress
         copyProgressContainer = findViewById(R.id.copyProgressContainer)
@@ -187,6 +208,87 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
         }
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.main_menu, menu)
+        return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
+        menu?.let {
+            updateSortMenuChecks(it)
+            it.findItem(R.id.action_toggle_info)?.isChecked = showImageInfoOverlay
+        }
+        return super.onPrepareOptionsMenu(menu)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        val previousSortCriterion = currentSort.criterion
+        val previousSortOrder = currentSort.order
+        var sortChanged = false
+
+        when (item.itemId) {
+            R.id.sort_filename_asc -> {
+                currentSort.criterion = SortCriterion.FILENAME
+                currentSort.order = SortOrder.ASCENDING
+            }
+            R.id.sort_filename_desc -> {
+                currentSort.criterion = SortCriterion.FILENAME
+                currentSort.order = SortOrder.DESCENDING
+            }
+            R.id.sort_filesize_asc -> {
+                currentSort.criterion = SortCriterion.FILESIZE
+                currentSort.order = SortOrder.ASCENDING
+            }
+            R.id.sort_filesize_desc -> {
+                currentSort.criterion = SortCriterion.FILESIZE
+                currentSort.order = SortOrder.DESCENDING
+            }
+            R.id.sort_filetype_asc -> {
+                currentSort.criterion = SortCriterion.FILETYPE
+                currentSort.order = SortOrder.ASCENDING
+            }
+            R.id.sort_filetype_desc -> {
+                currentSort.criterion = SortCriterion.FILETYPE
+                currentSort.order = SortOrder.DESCENDING
+            }
+            R.id.sort_datemodified_asc -> {
+                currentSort.criterion = SortCriterion.LAST_MODIFIED
+                currentSort.order = SortOrder.ASCENDING
+            }
+            R.id.sort_datemodified_desc -> {
+                currentSort.criterion = SortCriterion.LAST_MODIFIED
+                currentSort.order = SortOrder.DESCENDING
+            }
+            R.id.sort_uri_asc -> {
+                currentSort.criterion = SortCriterion.URI
+                currentSort.order = SortOrder.ASCENDING
+            }
+            R.id.sort_uri_desc -> {
+                currentSort.criterion = SortCriterion.URI
+                currentSort.order = SortOrder.DESCENDING
+            }
+            R.id.action_toggle_info -> {
+                showImageInfoOverlay = !showImageInfoOverlay
+                item.isChecked = showImageInfoOverlay
+
+                // Save the new state
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+                    putBoolean(KEY_SHOW_IMAGE_INFO_OVERLAY, showImageInfoOverlay)
+                }
+
+                adapter.notifyItemRangeChanged(0, imageInfos.size, PAYLOAD_INFO_VISIBILITY_CHANGED) // Use payload
+                return true
+            }
+            else -> return super.onOptionsItemSelected(item)
+        }
+
+        if (previousSortCriterion != currentSort.criterion || previousSortOrder != currentSort.order) {
+            item.isChecked = true
+            applySortAndRefresh()
+        }
+        return true
     }
 
     private fun formatBytes(bytes: Long): String {
@@ -313,16 +415,31 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         adapter = ImageAdapter(imageInfos)
         recyclerView.adapter = adapter
 
-        //setup fastscroller
+        setupFastScroller()
+    }
+
+    private fun setupFastScroller() {
         FastScrollerBuilder(recyclerView)
             .useMd2Style()
             .setTrackDrawable(ContextCompat.getDrawable(this, R.drawable.line_drawable)!!)
             .setThumbDrawable(ContextCompat.getDrawable(this, R.drawable.thumb_drawable)!!)
             .setPopupTextProvider { _, position ->
-                // Return the popup text for the item at this position
-                "$position / ${imageInfos.size}"
+                val imageInfo = imageInfos[position]
+                when (currentSort.criterion) {
+                    SortCriterion.FILENAME -> imageInfo.fileName
+                    SortCriterion.FILESIZE -> formatBytes(imageInfo.fileSize) // Helper needed
+                    SortCriterion.FILETYPE -> imageInfo.mimeType // Helper needed
+                    SortCriterion.LAST_MODIFIED -> formatTimestamp(imageInfo.lastModified) // Helper needed
+                    SortCriterion.URI -> imageInfo.uri.lastPathSegment ?: "..." // Or some part of URI
+                }
             }
-            .build();
+            .build()
+    }
+
+    private fun formatTimestamp(timestamp: Long): String {
+        if (timestamp <= 0) return "N/A"
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+        return sdf.format(Date(timestamp))
     }
 
     private fun checkPermissions(): Boolean {
@@ -381,8 +498,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             // Query the children of the current directory
             context.contentResolver.query(
                 childrenUri,
-                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    DocumentsContract.Document.COLUMN_SIZE),
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_SIZE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                ),
                 null,
                 null,
                 null
@@ -392,6 +514,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     val mimeType = cursor.getString(1)
                     val fileName = cursor.getString(2)
                     val fileSize = cursor.getLong(3)
+                    val lastModified = cursor.getLong(4)
 
                     // Construct the URI for the found item
                     val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
@@ -405,7 +528,15 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                             }
                             // If it's an image, add it to our results list
                             SUPPORTED_MIME_TYPES.contains(mimeType) -> {
-                                foundImages.add(ImageInfo(docUri, fileName, fileSize, mimeType, Orientation.UNDEFINED, copyStatus))
+                                foundImages.add(ImageInfo(
+                                    docUri,
+                                    fileName,
+                                    fileSize,
+                                    mimeType,
+                                    lastModified,
+                                    Orientation.UNDEFINED,
+                                    copyStatus,
+                                ))
                             }
                         }
                     }
@@ -423,12 +554,12 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         scope.launch(Dispatchers.IO) {
             val images = listImageFilesFromUri(folderUri)
-            val sortedImages = images.sortedBy { it.uri.toString() }.reversed()
+                .sortedWith(getImageSorter())
 
             withContext(Dispatchers.Main) {
                 imageInfos.clear()
-                imageInfos.addAll(sortedImages)
-                adapter.notifyItemRangeInserted(0, images.size)
+                imageInfos.addAll(images)
+                adapter.notifyDataSetChanged()
 
                 recyclerView.scrollToPosition(0)
                 recyclerView.visibility = View.VISIBLE
@@ -442,6 +573,43 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             // Kick off EXIF parsing in background
             lazyLoadExifOrientation(images)
         }
+    }
+
+    private fun getImageSorter(): Comparator<ImageInfo> {
+        val comparator: Comparator<ImageInfo> = when (currentSort.criterion) {
+            SortCriterion.URI -> compareBy { it.uri.toString() }
+            SortCriterion.FILENAME -> compareBy { it.fileName.lowercase() }
+            SortCriterion.FILETYPE -> compareBy { it.mimeType }
+            SortCriterion.FILESIZE -> compareBy { it.fileSize }
+            SortCriterion.LAST_MODIFIED -> compareBy { it.lastModified }
+        }
+        return if (currentSort.order == SortOrder.ASCENDING) {
+            comparator
+        } else {
+            comparator.reversed()
+        }
+    }
+
+    private fun applySortAndRefresh() {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+            putString(KEY_SORT_CRITERION, currentSort.criterion.name)
+            putString(KEY_SORT_ORDER, currentSort.order.name)
+            apply() // or commit()
+        }
+
+        imageInfos.sortWith (getImageSorter())
+        adapter.notifyItemRangeChanged(0, imageInfos.size)
+    }
+
+    private fun updateSortMenuChecks(menu: Menu) {
+        val itemIdToCheck = when (currentSort.criterion) {
+            SortCriterion.FILENAME -> if (currentSort.order == SortOrder.ASCENDING) R.id.sort_filename_asc else R.id.sort_filename_desc
+            SortCriterion.FILESIZE -> if (currentSort.order == SortOrder.ASCENDING) R.id.sort_filesize_asc else R.id.sort_filesize_desc
+            SortCriterion.FILETYPE -> if (currentSort.order == SortOrder.ASCENDING) R.id.sort_filetype_asc else R.id.sort_filetype_desc
+            SortCriterion.LAST_MODIFIED -> if (currentSort.order == SortOrder.ASCENDING) R.id.sort_datemodified_asc else R.id.sort_datemodified_desc
+            SortCriterion.URI -> if (currentSort.order == SortOrder.ASCENDING) R.id.sort_uri_asc else R.id.sort_uri_desc
+        }
+        menu.findItem(itemIdToCheck)?.isChecked = true
     }
 
     private fun lazyLoadExifOrientation(images: List<ImageInfo>) {
@@ -536,6 +704,16 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             return ViewHolder(view)
         }
 
+        override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
+            if (payloads.contains(PAYLOAD_INFO_VISIBILITY_CHANGED)) {
+                // Only update the info visibility part of the ViewHolder
+                holder.loadImageInfoOverlay(getImageInfo(position))
+            } else {
+                super.onBindViewHolder(holder, position, payloads)
+            }
+        }
+
+        // Ensure the standard onBindViewHolder calls the full bind
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val imageInfo = getImageInfo(position)
             val isSelected = selectedItems.contains(imageInfo)
@@ -573,6 +751,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private val imageView: ImageView = itemView.findViewById(R.id.imageView)
             private val selectionBadge: ImageView = itemView.findViewById(R.id.selectionBadge)
             private val mediaTypeIcon: ImageView = itemView.findViewById(R.id.mediaTypeIcon)
+            // Info Overlay Views
+            private val infoOverlay: LinearLayout = itemView.findViewById(R.id.infoOverlay)
+            private val infoFileName: TextView = itemView.findViewById(R.id.infoFileName)
+            private val infoFileSizeAndDate: TextView = itemView.findViewById(R.id.infoFileSizeAndDate)
 
             init {
                 itemView.setOnClickListener {
@@ -602,6 +784,19 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 loadImage(imageInfo.uri)
                 loadMediaTypeIcon(imageInfo)
                 loadSelectionBadge(imageInfo, isSelected)
+                loadImageInfoOverlay(imageInfo)
+            }
+
+            fun loadImageInfoOverlay(imageInfo: ImageInfo) {
+                if (showImageInfoOverlay) {
+                    infoOverlay.visibility = View.VISIBLE
+                    infoFileName.text = imageInfo.fileName
+                    val sizeStr = formatBytes(imageInfo.fileSize) // Use helper from MainActivity or move it
+                    val dateStr = formatTimestamp(imageInfo.lastModified) // Use helper from MainActivity or move it
+                    infoFileSizeAndDate.text = "$sizeStr - $dateStr"
+                } else {
+                    infoOverlay.visibility = View.GONE
+                }
             }
 
             private fun loadSelectionBadge(
@@ -820,3 +1015,16 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         return (applicationContext as VayuApp).getDiskCache()
     }
 }
+
+enum class SortCriterion {
+    URI, FILENAME, FILETYPE, FILESIZE, LAST_MODIFIED
+}
+
+enum class SortOrder {
+    ASCENDING, DESCENDING
+}
+
+data class CurrentSort(
+    var criterion: SortCriterion = SortCriterion.FILENAME,
+    var order: SortOrder = SortOrder.ASCENDING
+)

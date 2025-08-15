@@ -1,0 +1,51 @@
+<!-- res/menu/main_menu.xml (create if it doesn't exist) -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_sort"
+        android:icon="@drawable/ic_sort"
+        android:title="Sort By"
+        app:showAsAction="ifRoom">
+        <menu>
+            <group android:id="@+id/sort_options_group" android:checkableBehavior="single">
+                <item
+                    android:id="@+id/sort_filename_asc"
+                    android:title="Filename (A-Z)" />
+                <item
+                    android:id="@+id/sort_filename_desc"
+                    android:title="Filename (Z-A)" />
+                <item
+                    android:id="@+id/sort_filetype_asc"
+                    android:title="Filetype (A-Z)" />
+                <item
+                    android:id="@+id/sort_filetype_desc"
+                    android:title="Filetype (Z-A)" />
+                <item
+                    android:id="@+id/sort_filesize_asc"
+                    android:title="Size (Smallest First)" />
+                <item
+                    android:id="@+id/sort_filesize_desc"
+                    android:title="Size (Largest First)" />
+                <item
+                    android:id="@+id/sort_datemodified_asc"
+                    android:title="Date (Oldest First)" />
+                <item
+                    android:id="@+id/sort_datemodified_desc"
+                    android:title="Date (Newest First)" />
+                <item
+                    android:id="@+id/sort_uri_asc"
+                    android:title="URI (Ascending)" />
+                <item
+                    android:id="@+id/sort_uri_desc"
+                    android:title="URI (Descending)" />
+            </group>
+        </menu>
+    </item>
+
+    <item
+        android:id="@+id/action_toggle_info"
+        android:checkable="true"
+        android:title="Show File Info"
+        app:showAsAction="never" />
+</menu>
