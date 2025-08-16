@@ -52,8 +52,6 @@ class ContentResolverFileCopier(
                         output.write(buffer, 0, read)
                         totalCopied += read
                         onProgress(totalCopied)
-                        //TODO: remove for debugging
-                        delay(100)
                     }
                 }
 
