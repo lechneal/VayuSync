@@ -1,12 +1,10 @@
-- header:
-    - file type filter better performance: no reload from disk
-    - show media type icon, setting in menu and store in pref
+Major:
 - Advanced copy features
-    - Copy while app in background = add foreground service + android notification
-    - Store state for crash, and pickup upon restart
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
+    - [huge] Copy while app in background = add foreground service + android notification
+    - Store state for crash, and pickup upon restart
 - improve design
-    - menu items?
+    - revisit color scheme, use material design?
     - hide source/destination after setting?
     - add icons to buttons
     - different button color or text if folder not selected
@@ -26,6 +24,11 @@
     - also allow moving to next/prev image
     - preload next/prev image
 - add initial walkthrough
+
+
+Minor:
+- header:
+    - setting for whether to show media type icon, store in preferences
 
 
 Done:
@@ -68,3 +71,5 @@ Done:
     - Sortby: also show info in scrollbar popup
     - show info, toggle in menu
     - file type filter
+    - file type filter better performance: no reload from disk
+    - file type filter: if filter is active add some visual feedback

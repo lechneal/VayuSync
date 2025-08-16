@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.PorterDuff
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -83,7 +84,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private lateinit var selectDestinationFolderButton: Button
     private lateinit var adapter: ImageAdapter
     // --- Use Uri instead of File ---
-    private val fileInfos = mutableListOf<FileInfo>()
+    private val allFileInfos = mutableListOf<FileInfo>()
+    private val shownFileInfos = mutableListOf<FileInfo>()
     private var alreadyCopiedImages = HashSet<String>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -91,6 +93,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private var activeMimeTypeFilters: MutableSet<String> = mutableSetOf()
     private val discoveredMimeTypes = mutableSetOf<String>()
     private val mimeTypeMenuItemIds = mutableMapOf<Int, String>()
+    private var menuItemMimeTypeFilter: MenuItem? = null
 
     // -- copy
     private lateinit var fileCopier: ContentResolverFileCopier
@@ -226,9 +229,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
         lifecycleScope.launch {
             copyViewModel.getCopiedImage().collect { copiedImageInfo ->
-                val position = fileInfos.indexOfFirst { it.uri == copiedImageInfo.uri }
                 copiedImageInfo.copyStatus = CopyStatus.COPIED
                 alreadyCopiedImages.add(copiedImageInfo.fileName)
+
+                val position = shownFileInfos.indexOfFirst { it.uri == copiedImageInfo.uri }
                 if (position != -1) {
                     adapter.notifyItemChanged(position)
                 }
@@ -237,13 +241,14 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     private fun refreshCopyStatus() {
-        fileInfos.forEachIndexed { index, image ->
+        shownFileInfos.forEachIndexed { index, image ->
             val newStatus = if (alreadyCopiedImages.contains(image.fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
             if (image.copyStatus != newStatus) {
                 image.copyStatus = newStatus
                 adapter.notifyItemChanged(index)
             }
         }
+        allFileInfos.forEach { if (it.copyStatus == CopyStatus.NOT_COPIED) it.copyStatus = CopyStatus.NOT_COPIED }
     }
 
     private fun saveActiveMimeTypeFilters() {
@@ -255,6 +260,12 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
+
+        menuItemMimeTypeFilter = menu
+            .findItem(R.id.action_filter_mime_type)
+
+        updateFilterIcon()
+
         return true
     }
 
@@ -305,6 +316,16 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
+    fun updateFilterIcon() {
+        menuItemMimeTypeFilter?.icon?.mutate()?.let {
+            if (activeMimeTypeFilters.isNotEmpty()) {
+                it.setTint(androidx.appcompat.R.attr.colorPrimary)
+            } else {
+                it.setTint(getColor(R.color.default_tint))
+            }
+        }
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         // Handle MIME type filter selection
         if (item.groupId == MIME_TYPE_MENU_ITEM_GROUP_ID) {
@@ -322,7 +343,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
             saveActiveMimeTypeFilters()
-            loadSavedSourceFolderAndImages()
+            refreshShownImages()
             invalidateOptionsMenu()
             return true
         }
@@ -379,7 +400,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     putBoolean(KEY_SHOW_IMAGE_INFO_OVERLAY, showImageInfoOverlay)
                 }
 
-                adapter.notifyItemRangeChanged(0, fileInfos.size, PAYLOAD_INFO_VISIBILITY_CHANGED) // Use payload
+                adapter.notifyItemRangeChanged(0, shownFileInfos.size, PAYLOAD_INFO_VISIBILITY_CHANGED) // Use payload
                 return true
             }
             else -> return super.onOptionsItemSelected(item)
@@ -387,7 +408,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         if (previousSortCriterion != currentSort.criterion || previousSortOrder != currentSort.order) {
             item.isChecked = true
-            applySortAndRefresh()
+            saveSortConfig()
+            refreshShownImages()
         }
         return true
     }
@@ -514,7 +536,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         recyclerView = findViewById(R.id.recyclerView)
         recyclerView.layoutManager = gridLayoutManager // Use the modified manager
-        adapter = ImageAdapter(fileInfos)
+        adapter = ImageAdapter(shownFileInfos)
         recyclerView.adapter = adapter
 
         setupFastScroller()
@@ -526,7 +548,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             .setTrackDrawable(ContextCompat.getDrawable(this, R.drawable.line_drawable)!!)
             .setThumbDrawable(ContextCompat.getDrawable(this, R.drawable.thumb_drawable)!!)
             .setPopupTextProvider { _, position ->
-                val imageInfo = fileInfos[position]
+                val imageInfo = shownFileInfos[position]
                 when (currentSort.criterion) {
                     SortCriterion.FILENAME -> imageInfo.fileName
                     SortCriterion.FILESIZE -> formatBytes(imageInfo.fileSize) // Helper needed
@@ -574,7 +596,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun listImageFilesFromUri(treeUri: Uri): List<FileInfo> {
+    private fun loadImageFilesFromUri(treeUri: Uri) {
         val context = this
         val foundFiles = mutableListOf<FileInfo>()
         val currentDiscoveredMimeTypes = mutableSetOf<String>() // Local set for this scan
@@ -623,20 +645,17 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                             directoryStack.add(docUri)
                         } else if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
                             currentDiscoveredMimeTypes.add(mimeType)
-
-                            if (activeMimeTypeFilters.isEmpty() || activeMimeTypeFilters.contains(mimeType)) {
-                                foundFiles.add(
-                                    FileInfo(
-                                        docUri,
-                                        fileName,
-                                        fileSize,
-                                        mimeType,
-                                        lastModified,
-                                        Orientation.UNDEFINED,
-                                        if (alreadyCopiedImages.contains(fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
-                                    )
+                            foundFiles.add(
+                                FileInfo(
+                                    docUri,
+                                    fileName,
+                                    fileSize,
+                                    mimeType,
+                                    lastModified,
+                                    Orientation.UNDEFINED,
+                                    if (alreadyCopiedImages.contains(fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
                                 )
-                            }
+                            )
                         }
                     }
                 }
@@ -646,7 +665,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         this.discoveredMimeTypes.clear()
         this.discoveredMimeTypes.addAll(currentDiscoveredMimeTypes.sorted()) // Keep them sorted for menu display
 
-        return foundFiles
+        this.allFileInfos.clear()
+        this.allFileInfos.addAll(foundFiles)
     }
 
     private fun updateAlreadyCopiedImages(outputUri: Uri?) {
@@ -667,52 +687,54 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         scope.launch(Dispatchers.IO) {
             updateAlreadyCopiedImages(getSavedDestinationFolder())
 
-            val images = listImageFilesFromUri(folderUri)
-                .sortedWith(getImageSorter())
+            loadImageFilesFromUri(folderUri)
 
             withContext(Dispatchers.Main) {
-                fileInfos.clear()
-                fileInfos.addAll(images)
-                adapter.notifyDataSetChanged()
+                refreshShownImages()
+                invalidateOptionsMenu()
 
                 recyclerView.scrollToPosition(0)
                 recyclerView.visibility = View.VISIBLE
                 loadingProgressBar.visibility = View.GONE
 
-                if (fileInfos.isEmpty()) {
+                if (allFileInfos.isEmpty()) {
                     Toast.makeText(this@MainActivity, "No images found in the selected folder: $folderUri", Toast.LENGTH_LONG).show()
                 }
             }
 
             // Kick off EXIF parsing in background
-            lazyLoadExifOrientation(images)
+            lazyLoadExifOrientation(allFileInfos)
         }
     }
 
-    private fun getImageSorter(): Comparator<FileInfo> {
-        val comparator: Comparator<FileInfo> = when (currentSort.criterion) {
-            SortCriterion.URI -> compareBy { it.uri.toString() }
+    private fun refreshShownImages() {
+        shownFileInfos.clear()
+        shownFileInfos.addAll(allFileInfos
+            .filter { activeMimeTypeFilters.isEmpty() || activeMimeTypeFilters.contains(it.mimeType) }
+            .sortedWith(getImageSorter())
+        )
+
+        adapter.notifyDataSetChanged()
+        updateFilterIcon()
+    }
+
+    private fun getImageSorter(): Comparator<FileInfo> =
+        when (currentSort.criterion) {
+            SortCriterion.URI -> compareBy<FileInfo> { it.uri.toString() }
             SortCriterion.FILENAME -> compareBy { it.fileName.lowercase() }
             SortCriterion.FILETYPE -> compareBy { it.mimeType }
             SortCriterion.FILESIZE -> compareBy { it.fileSize }
             SortCriterion.LAST_MODIFIED -> compareBy { it.lastModified }
+        }.let {
+            if (currentSort.order == SortOrder.ASCENDING) it else it.reversed()
         }
-        return if (currentSort.order == SortOrder.ASCENDING) {
-            comparator
-        } else {
-            comparator.reversed()
-        }
-    }
 
-    private fun applySortAndRefresh() {
+    private fun saveSortConfig() {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
             putString(KEY_SORT_CRITERION, currentSort.criterion.name)
             putString(KEY_SORT_ORDER, currentSort.order.name)
             apply() // or commit()
         }
-
-        fileInfos.sortWith (getImageSorter())
-        adapter.notifyItemRangeChanged(0, fileInfos.size)
     }
 
     private fun updateSortMenuChecks(menu: Menu) {
