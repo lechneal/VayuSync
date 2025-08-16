@@ -66,11 +66,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         private const val KEY_SHOW_IMAGE_INFO_OVERLAY = "showImageInfoOverlay"
         private const val KEY_SORT_CRITERION = "sortCriterion"
         private const val KEY_SORT_ORDER = "sortOrder"
+        private const val KEY_ACTIVE_MIME_TYPE_FILTERS = "activeMimeTypeFilters"
 
         private const val PAYLOAD_INFO_VISIBILITY_CHANGED = "PAYLOAD_INFO_VISIBILITY_CHANGED"
-    }
 
-    private val SUPPORTED_MIME_TYPES = arrayOf("image/jpeg", "image/jpg", "video/quicktime", "video/mp4")
+        private const val MIME_TYPE_MENU_ITEM_GROUP_ID = 1001 // Unique group ID
+        private const val MIME_TYPE_MENU_ITEM_ID_OFFSET = 10000 // Start IDs for MIME types
+    }
 
     private val currentSort = CurrentSort()
     private var showImageInfoOverlay = false
@@ -81,10 +83,14 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private lateinit var selectDestinationFolderButton: Button
     private lateinit var adapter: ImageAdapter
     // --- Use Uri instead of File ---
-    private val imageInfos = mutableListOf<ImageInfo>()
+    private val fileInfos = mutableListOf<FileInfo>()
     private var alreadyCopiedImages = HashSet<String>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    // mime filter
+    private var activeMimeTypeFilters: MutableSet<String> = mutableSetOf()
+    private val discoveredMimeTypes = mutableSetOf<String>()
+    private val mimeTypeMenuItemIds = mutableMapOf<Int, String>()
 
     // -- copy
     private lateinit var fileCopier: ContentResolverFileCopier
@@ -117,6 +123,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         val savedOrderName = prefs.getString(KEY_SORT_ORDER, SortOrder.ASCENDING.toString())
         currentSort.criterion = try { SortCriterion.valueOf(savedCriterionName!!) } finally { }
         currentSort.order = try { SortOrder.valueOf(savedOrderName!!) } finally { }
+
+        val savedFilters = prefs.getStringSet(KEY_ACTIVE_MIME_TYPE_FILTERS, emptySet())
+        activeMimeTypeFilters.addAll(savedFilters ?: emptySet())
+
 
         loadingProgressBar = findViewById(R.id.loadingProgressBar)
 
@@ -216,7 +226,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
         lifecycleScope.launch {
             copyViewModel.getCopiedImage().collect { copiedImageInfo ->
-                val position = imageInfos.indexOfFirst { it.uri == copiedImageInfo.uri }
+                val position = fileInfos.indexOfFirst { it.uri == copiedImageInfo.uri }
                 copiedImageInfo.copyStatus = CopyStatus.COPIED
                 alreadyCopiedImages.add(copiedImageInfo.fileName)
                 if (position != -1) {
@@ -227,12 +237,19 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     private fun refreshCopyStatus() {
-        imageInfos.forEachIndexed { index, image ->
+        fileInfos.forEachIndexed { index, image ->
             val newStatus = if (alreadyCopiedImages.contains(image.fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
             if (image.copyStatus != newStatus) {
                 image.copyStatus = newStatus
                 adapter.notifyItemChanged(index)
             }
+        }
+    }
+
+    private fun saveActiveMimeTypeFilters() {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+            putStringSet(KEY_ACTIVE_MIME_TYPE_FILTERS, activeMimeTypeFilters)
+            apply()
         }
     }
 
@@ -242,18 +259,76 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
-        menu?.let {
-            updateSortMenuChecks(it)
-            it.findItem(R.id.action_toggle_info)?.isChecked = showImageInfoOverlay
+        menu?.let { safeMenu ->
+            updateSortMenuChecks(safeMenu)
+            safeMenu.findItem(R.id.action_toggle_info)?.isChecked = showImageInfoOverlay
+
+            // Dynamically build MIME type filter menu
+            val filterMenuParent = safeMenu.findItem(R.id.action_filter_mime_type)
+            setupMimeFilter(filterMenuParent)
         }
         return super.onPrepareOptionsMenu(menu)
     }
 
+    private fun setupMimeFilter(filterMenuParent: MenuItem) {
+        if (discoveredMimeTypes.isNotEmpty()) {
+            val submenu = filterMenuParent.subMenu ?: throw IllegalStateException("Submenu cannot be null")
+            submenu.clear() // Clear previous dynamic items
+            mimeTypeMenuItemIds.clear()
+
+            filterMenuParent.isVisible = true // Show if types are available
+
+            // Add "Show All" option
+            val showAllItem = submenu.add(
+                MIME_TYPE_MENU_ITEM_GROUP_ID,
+                Menu.NONE,
+                0, // Order
+                "Show All Types"
+            )
+            showAllItem.isCheckable = true
+            showAllItem.isChecked = activeMimeTypeFilters.isEmpty() // Checked if no filters active
+
+            discoveredMimeTypes.sorted().forEachIndexed { index, mimeType ->
+                val itemId = MIME_TYPE_MENU_ITEM_ID_OFFSET + index
+                mimeTypeMenuItemIds[itemId] = mimeType // Map ID to MIME type string
+                val item = submenu.add(
+                    MIME_TYPE_MENU_ITEM_GROUP_ID,
+                    itemId,
+                    index + 1, // Order
+                    mimeType // Display the MIME type string
+                )
+                item.isCheckable = true
+                item.isChecked = activeMimeTypeFilters.contains(mimeType)
+            }
+        } else {
+            filterMenuParent.isVisible = false
+        }
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        // Handle MIME type filter selection
+        if (item.groupId == MIME_TYPE_MENU_ITEM_GROUP_ID) {
+            if (item.itemId == Menu.NONE) { //show all
+                if (!item.isChecked) {
+                    activeMimeTypeFilters.clear()
+                }
+            } else {
+                mimeTypeMenuItemIds[item.itemId]?.let { mimeType ->
+                    if (item.isChecked) {
+                        activeMimeTypeFilters.remove(mimeType)
+                    } else {
+                        activeMimeTypeFilters.add(mimeType)
+                    }
+                }
+            }
+            saveActiveMimeTypeFilters()
+            loadSavedSourceFolderAndImages()
+            invalidateOptionsMenu()
+            return true
+        }
+
         val previousSortCriterion = currentSort.criterion
         val previousSortOrder = currentSort.order
-        var sortChanged = false
-
         when (item.itemId) {
             R.id.sort_filename_asc -> {
                 currentSort.criterion = SortCriterion.FILENAME
@@ -304,7 +379,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     putBoolean(KEY_SHOW_IMAGE_INFO_OVERLAY, showImageInfoOverlay)
                 }
 
-                adapter.notifyItemRangeChanged(0, imageInfos.size, PAYLOAD_INFO_VISIBILITY_CHANGED) // Use payload
+                adapter.notifyItemRangeChanged(0, fileInfos.size, PAYLOAD_INFO_VISIBILITY_CHANGED) // Use payload
                 return true
             }
             else -> return super.onOptionsItemSelected(item)
@@ -439,7 +514,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         recyclerView = findViewById(R.id.recyclerView)
         recyclerView.layoutManager = gridLayoutManager // Use the modified manager
-        adapter = ImageAdapter(imageInfos)
+        adapter = ImageAdapter(fileInfos)
         recyclerView.adapter = adapter
 
         setupFastScroller()
@@ -451,7 +526,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             .setTrackDrawable(ContextCompat.getDrawable(this, R.drawable.line_drawable)!!)
             .setThumbDrawable(ContextCompat.getDrawable(this, R.drawable.thumb_drawable)!!)
             .setPopupTextProvider { _, position ->
-                val imageInfo = imageInfos[position]
+                val imageInfo = fileInfos[position]
                 when (currentSort.criterion) {
                     SortCriterion.FILENAME -> imageInfo.fileName
                     SortCriterion.FILESIZE -> formatBytes(imageInfo.fileSize) // Helper needed
@@ -499,12 +574,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun listImageFilesFromUri(treeUri: Uri): List<ImageInfo> {
-        val outputUri = getSavedDestinationFolder()
-        updateAlreadyCopiedImages(outputUri)
-
+    private fun listImageFilesFromUri(treeUri: Uri): List<FileInfo> {
         val context = this
-        val foundImages = mutableListOf<ImageInfo>()
+        val foundFiles = mutableListOf<FileInfo>()
+        val currentDiscoveredMimeTypes = mutableSetOf<String>() // Local set for this scan
 
         // We need a stack to do a breadth-first or depth-first search.
         val directoryStack = ArrayDeque<Uri>()
@@ -545,32 +618,35 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
                     // Construct the URI for the found item
                     val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                    val copyStatus = if (alreadyCopiedImages.contains(fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
-
                     if (mimeType != null) {
-                        when {
-                            // If it's a directory, add it to the stack to be processed
-                            mimeType == DocumentsContract.Document.MIME_TYPE_DIR -> {
-                                directoryStack.add(docUri)
-                            }
-                            // If it's an image, add it to our results list
-                            SUPPORTED_MIME_TYPES.contains(mimeType) -> {
-                                foundImages.add(ImageInfo(
-                                    docUri,
-                                    fileName,
-                                    fileSize,
-                                    mimeType,
-                                    lastModified,
-                                    Orientation.UNDEFINED,
-                                    copyStatus,
-                                ))
+                        if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                            directoryStack.add(docUri)
+                        } else if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
+                            currentDiscoveredMimeTypes.add(mimeType)
+
+                            if (activeMimeTypeFilters.isEmpty() || activeMimeTypeFilters.contains(mimeType)) {
+                                foundFiles.add(
+                                    FileInfo(
+                                        docUri,
+                                        fileName,
+                                        fileSize,
+                                        mimeType,
+                                        lastModified,
+                                        Orientation.UNDEFINED,
+                                        if (alreadyCopiedImages.contains(fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
+                                    )
+                                )
                             }
                         }
                     }
                 }
             }
         }
-        return foundImages
+
+        this.discoveredMimeTypes.clear()
+        this.discoveredMimeTypes.addAll(currentDiscoveredMimeTypes.sorted()) // Keep them sorted for menu display
+
+        return foundFiles
     }
 
     private fun updateAlreadyCopiedImages(outputUri: Uri?) {
@@ -589,19 +665,21 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         scope.launch(Dispatchers.IO) {
+            updateAlreadyCopiedImages(getSavedDestinationFolder())
+
             val images = listImageFilesFromUri(folderUri)
                 .sortedWith(getImageSorter())
 
             withContext(Dispatchers.Main) {
-                imageInfos.clear()
-                imageInfos.addAll(images)
+                fileInfos.clear()
+                fileInfos.addAll(images)
                 adapter.notifyDataSetChanged()
 
                 recyclerView.scrollToPosition(0)
                 recyclerView.visibility = View.VISIBLE
                 loadingProgressBar.visibility = View.GONE
 
-                if (imageInfos.isEmpty()) {
+                if (fileInfos.isEmpty()) {
                     Toast.makeText(this@MainActivity, "No images found in the selected folder: $folderUri", Toast.LENGTH_LONG).show()
                 }
             }
@@ -611,8 +689,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun getImageSorter(): Comparator<ImageInfo> {
-        val comparator: Comparator<ImageInfo> = when (currentSort.criterion) {
+    private fun getImageSorter(): Comparator<FileInfo> {
+        val comparator: Comparator<FileInfo> = when (currentSort.criterion) {
             SortCriterion.URI -> compareBy { it.uri.toString() }
             SortCriterion.FILENAME -> compareBy { it.fileName.lowercase() }
             SortCriterion.FILETYPE -> compareBy { it.mimeType }
@@ -633,8 +711,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             apply() // or commit()
         }
 
-        imageInfos.sortWith (getImageSorter())
-        adapter.notifyItemRangeChanged(0, imageInfos.size)
+        fileInfos.sortWith (getImageSorter())
+        adapter.notifyItemRangeChanged(0, fileInfos.size)
     }
 
     private fun updateSortMenuChecks(menu: Menu) {
@@ -648,7 +726,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         menu.findItem(itemIdToCheck)?.isChecked = true
     }
 
-    private fun lazyLoadExifOrientation(images: List<ImageInfo>) {
+    private fun lazyLoadExifOrientation(images: List<FileInfo>) {
         scope.launch(Dispatchers.IO) {
             images.forEach {
                 it.orientation = readOrientation(it)
@@ -659,7 +737,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun readOrientation(image: ImageInfo): Orientation {
+    private fun readOrientation(image: FileInfo): Orientation {
         return try {
             contentResolver.openInputStream(image.uri).use { input ->
                 val exif = ExifInterface(input!!)
@@ -694,15 +772,15 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     // --- Adapter now takes a list of Uris ---
-    inner class ImageAdapter(private val images: List<ImageInfo>) :
+    inner class ImageAdapter(private val images: List<FileInfo>) :
         RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
-        private val selectedItems = mutableSetOf<ImageInfo>()
+        private val selectedItems = mutableSetOf<FileInfo>()
 
         fun getSelectedCount() = selectedItems.size
-        fun getSelectedItems(): List<ImageInfo> = selectedItems.toList()
+        fun getSelectedItems(): List<FileInfo> = selectedItems.toList()
 
-        fun getImageInfo(position: Int): ImageInfo {
+        fun getImageInfo(position: Int): FileInfo {
             return images[position]
         }
 
@@ -814,19 +892,19 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 this.imageView.dispose();
             }
 
-            fun bind(imageInfo: ImageInfo, isSelected: Boolean) {
-                loadImage(imageInfo.uri)
-                loadMediaTypeIcon(imageInfo)
-                loadSelectionBadge(imageInfo, isSelected)
-                loadImageInfoOverlay(imageInfo)
+            fun bind(fileInfo: FileInfo, isSelected: Boolean) {
+                loadImage(fileInfo.uri)
+                loadMediaTypeIcon(fileInfo)
+                loadSelectionBadge(fileInfo, isSelected)
+                loadImageInfoOverlay(fileInfo)
             }
 
-            fun loadImageInfoOverlay(imageInfo: ImageInfo) {
+            fun loadImageInfoOverlay(fileInfo: FileInfo) {
                 if (showImageInfoOverlay) {
                     infoOverlay.visibility = View.VISIBLE
-                    infoFileName.text = imageInfo.fileName
-                    val sizeStr = formatBytes(imageInfo.fileSize) // Use helper from MainActivity or move it
-                    val dateStr = formatTimestamp(imageInfo.lastModified) // Use helper from MainActivity or move it
+                    infoFileName.text = fileInfo.fileName
+                    val sizeStr = formatBytes(fileInfo.fileSize) // Use helper from MainActivity or move it
+                    val dateStr = formatTimestamp(fileInfo.lastModified) // Use helper from MainActivity or move it
                     infoFileSizeAndDate.text = "$sizeStr - $dateStr"
                 } else {
                     infoOverlay.visibility = View.GONE
@@ -834,18 +912,18 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             private fun loadSelectionBadge(
-                imageInfo: ImageInfo,
+                fileInfo: FileInfo,
                 isSelected: Boolean
             ) {
                 if (isSelected) {
                     selectionBadge.setImageResource(R.drawable.ic_check_circle)
                     selectionBadge.visibility = View.VISIBLE
                     selectionBadge.alpha = 1f
-                } else if (imageInfo.copyStatus == CopyStatus.COPIED) {
+                } else if (fileInfo.copyStatus == CopyStatus.COPIED) {
                     selectionBadge.setImageResource(R.drawable.ic_check_circle)
                     selectionBadge.visibility = View.VISIBLE
                     selectionBadge.alpha = 0.5f
-                } else if (imageInfo.copyStatus == CopyStatus.COPYING) {
+                } else if (fileInfo.copyStatus == CopyStatus.COPYING) {
                     selectionBadge.setImageResource(R.drawable.ic_image_loading)
                     selectionBadge.visibility = View.VISIBLE
                     selectionBadge.alpha = 1f
@@ -864,7 +942,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 this@ImageAdapter.cancelAllPendingPreviews();
             }
 
-            private fun loadMediaTypeIcon(image: ImageInfo) {
+            private fun loadMediaTypeIcon(image: FileInfo) {
                 val mimeType = image.mimeType
 
                 when {
@@ -964,7 +1042,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun copyFilesTo(images: List<ImageInfo>, destinationFolder: Uri) {
+    private fun copyFilesTo(images: List<FileInfo>, destinationFolder: Uri) {
         val imagesToCopy = images.map {
             it.copyStatus = CopyStatus.COPYING
             ImageToCopy(it, destinationFolder)

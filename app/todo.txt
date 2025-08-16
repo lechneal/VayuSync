@@ -1,6 +1,6 @@
 - header:
-    - Sortby: also show info in scrollbar popup
-    - file type filter in settings? allow RAW?
+    - file type filter better performance: no reload from disk
+    - show media type icon, setting in menu and store in pref
 - Advanced copy features
     - Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
@@ -64,5 +64,7 @@ Done:
     - Add cancel
     - reset copying image state and delete current image transfer upon cancel
 - menu / settings
-    - Sortby + store selection: also show info in scrollbar popup
+    - Sortby + store selection
+    - Sortby: also show info in scrollbar popup
     - show info, toggle in menu
+    - file type filter

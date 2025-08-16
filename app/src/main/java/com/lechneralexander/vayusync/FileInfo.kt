@@ -2,7 +2,7 @@ package com.lechneralexander.vayusync
 
 import android.net.Uri
 
-data class ImageInfo(
+data class FileInfo(
     val uri: Uri,
     val fileName: String,
     val fileSize: Long,

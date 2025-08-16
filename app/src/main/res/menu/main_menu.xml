@@ -44,6 +44,18 @@
     </item>
 
     <item
+        android:id="@+id/action_filter_mime_type"
+        android:icon="@drawable/ic_filter"
+        android:title="Filter by Type"
+        app:showAsAction="ifRoom">
+
+        <menu>
+        <group android:id="@+id/mime_filter_options_group" android:checkableBehavior="all">
+        </group>
+        </menu>
+    </item>
+
+    <item
         android:id="@+id/action_toggle_info"
         android:checkable="true"
         android:title="Show File Info"

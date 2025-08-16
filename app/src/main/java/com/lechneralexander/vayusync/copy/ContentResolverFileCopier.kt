@@ -3,7 +3,7 @@ package com.lechneralexander.vayusync.copy
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.DocumentsContract
-import com.lechneralexander.vayusync.ImageInfo
+import com.lechneralexander.vayusync.FileInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -11,7 +11,7 @@ import kotlin.coroutines.cancellation.CancellationException
 
 interface FileCopier {
     suspend fun copy(
-        image: ImageInfo,
+        image: FileInfo,
         destinationFolder: Uri,
         onProgress: (bytesCopied: Long) -> Unit,
         shouldPause: () -> Boolean,
@@ -25,7 +25,7 @@ class ContentResolverFileCopier(
     private val buffer = ByteArray(64 * 1024)
 
     override suspend fun copy(
-        image: ImageInfo,
+        image: FileInfo,
         destinationFolder: Uri,
         onProgress: (Long) -> Unit,
         shouldPause: () -> Boolean,
@@ -65,7 +65,7 @@ class ContentResolverFileCopier(
         }
     }
 
-    private fun getDestinationUri(image: ImageInfo, destinationTreeUri: Uri): Uri? {
+    private fun getDestinationUri(image: FileInfo, destinationTreeUri: Uri): Uri? {
         val docId = DocumentsContract.getTreeDocumentId(destinationTreeUri)
         val destinationFolderDocUri = DocumentsContract.buildDocumentUriUsingTree(destinationTreeUri, docId)
         val fileName = image.fileName ?: "file_${System.currentTimeMillis()}"

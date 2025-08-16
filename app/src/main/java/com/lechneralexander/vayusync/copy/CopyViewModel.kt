@@ -3,7 +3,7 @@ package com.lechneralexander.vayusync.copy
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lechneralexander.vayusync.ImageInfo
+import com.lechneralexander.vayusync.FileInfo
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -24,7 +24,7 @@ data class CopyProgress(
     val completed: Boolean,
 )
 data class ImageToCopy(
-    val info: ImageInfo,
+    val info: FileInfo,
     val destinationFolder: Uri
 )
 
@@ -32,7 +32,7 @@ class CopyViewModel(
     private val fileCopier: FileCopier
 ) : ViewModel() {
     private val progress = MutableStateFlow(CopyProgress(0, 0, 0, 0, 0.0, false, false))
-    private val copiedImage = MutableSharedFlow<ImageInfo>(extraBufferCapacity = 10)
+    private val copiedImage = MutableSharedFlow<FileInfo>(extraBufferCapacity = 10)
 
     private val queue = ConcurrentLinkedQueue<ImageToCopy>()
     private val totalBytes = AtomicLong(0)
