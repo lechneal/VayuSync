@@ -4,7 +4,6 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.PorterDuff
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -45,6 +44,7 @@ import com.lechneralexander.vayusync.cache.CacheHelper
 import com.lechneralexander.vayusync.copy.ContentResolverFileCopier
 import com.lechneralexander.vayusync.copy.CopyViewModel
 import com.lechneralexander.vayusync.copy.ImageToCopy
+import com.lechneralexander.vayusync.extensions.setTint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -317,11 +317,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     fun updateFilterIcon() {
-        menuItemMimeTypeFilter?.icon?.mutate()?.let {
+        menuItemMimeTypeFilter?.let {
             if (activeMimeTypeFilters.isNotEmpty()) {
-                it.setTint(androidx.appcompat.R.attr.colorPrimary)
+                it.setTint(this, com.google.android.material.R.attr.colorPrimary)
             } else {
-                it.setTint(getColor(R.color.default_tint))
+                it.setTint(this, com.google.android.material.R.attr.colorOnSurface)
             }
         }
     }

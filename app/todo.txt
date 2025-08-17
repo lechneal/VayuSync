@@ -1,4 +1,6 @@
 Major:
+- bugs
+    - opening preview takes a long time, would need some visual feedback first
 - Advanced copy features
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
     - [huge] Copy while app in background = add foreground service + android notification
@@ -73,3 +75,5 @@ Done:
     - file type filter
     - file type filter better performance: no reload from disk
     - file type filter: if filter is active add some visual feedback
+- design
+    - consistent material color usage
