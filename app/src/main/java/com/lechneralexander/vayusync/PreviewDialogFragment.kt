@@ -2,7 +2,6 @@ package com.lechneralexander.vayusync
 
 import android.app.Dialog
 import android.content.DialogInterface
-import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -12,14 +11,15 @@ import android.view.ViewGroup
 import android.widget.MediaController
 import android.widget.TextView
 import android.widget.VideoView
-import androidx.core.graphics.drawable.toDrawable
 import androidx.exifinterface.media.ExifInterface
 import androidx.fragment.app.DialogFragment
-import coil.ImageLoader
+import androidx.lifecycle.lifecycleScope
 import coil.load
-import coil.memory.MemoryCache
 import com.github.chrisbanes.photoview.PhotoView
 import com.lechneralexander.vayusync.cache.CacheHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PreviewDialogFragment : DialogFragment() {
 
@@ -74,57 +74,59 @@ class PreviewDialogFragment : DialogFragment() {
         }
 
         val exifView = view.findViewById<TextView>(R.id.fullExifInfo)
-        val exifInfo = loadExifInfo(uri) ?: "No EXIF information!"
-        exifView.text = exifInfo
+        // Load EXIF info asynchronously
+        lifecycleScope.launch {
+            val exifInfoString = loadExifInfo(uri) // New async function
+            exifView.text = exifInfoString ?: "No EXIF information!"
+        }
 
         view.setOnClickListener { dismiss() }
 
         return view
     }
 
-    private fun loadExifInfo(uri: Uri): String? {
-        requireContext().contentResolver.openInputStream(uri)?.use { inputStream ->
-            val exif = ExifInterface(inputStream)
-            val make = exif.getAttribute(ExifInterface.TAG_MAKE)
-            val model = exif.getAttribute(ExifInterface.TAG_MODEL)
-            val datetime = exif.getAttribute(ExifInterface.TAG_DATETIME)
-            val focalLength = exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)
-            val iso = exif.getAttribute(ExifInterface.TAG_ISO_SPEED)
-            val exposureTime = exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)
-            val width = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, -1)
-            val height = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, -1)
-            val sizeBytes = context?.contentResolver?.openAssetFileDescriptor(uri, "r")?.use { afd ->
-                afd.length
-            } ?: -1L
-            val lensMake = exif.getAttribute(ExifInterface.TAG_LENS_MAKE)
-            val aperture = exif.getAttribute(ExifInterface.TAG_F_NUMBER)
-            val shutterSpeed = exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)
+    private suspend fun loadExifInfo(uri: Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            requireContext().contentResolver.openInputStream(uri)?.use { inputStream ->
+                val exif = ExifInterface(inputStream)
+                val make = exif.getAttribute(ExifInterface.TAG_MAKE)
+                val model = exif.getAttribute(ExifInterface.TAG_MODEL)
+                val datetime = exif.getAttribute(ExifInterface.TAG_DATETIME)
+                val focalLength = exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)
+                val iso = exif.getAttribute(ExifInterface.TAG_ISO_SPEED)
+                val exposureTime = exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)
+                val width = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, -1)
+                val height = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, -1)
+                val sizeBytes = context?.contentResolver?.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                    afd.length
+                } ?: -1L
+                val lensMake = exif.getAttribute(ExifInterface.TAG_LENS_MAKE)
+                val aperture = exif.getAttribute(ExifInterface.TAG_F_NUMBER)
+                val shutterSpeed = exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)
 
-            val exifInfo = buildString {
-                listOfNotNull(
-                    if (make != null || model != null) "Camera: $make $model" else null,
-                    focalLength?.let { "Focal Length: $it" },
-                    iso?.let { "ISO: $it" },
-                    exposureTime?.let { "Exposure: $it s" },
-                    datetime?.let { "Taken: $it" },
-                    if (width > 0 && height > 0) "Resolution: ${width}x${height}" else null,
-                    if (sizeBytes > 0) "File size: ${sizeBytes / 1024} KB" else null,
-                    lensMake?.let { "Lens make: $it" },
-                    aperture?.let { "Aperture: f/$it" },
-                    shutterSpeed?.let { "Shutter speed: $it s" }
-                ).forEach { appendLine(it) }
+                val exifInfo = buildString {
+                    listOfNotNull(
+                        if (make != null || model != null) "Camera: $make $model" else null,
+                        focalLength?.let { "Focal Length: $it" },
+                        iso?.let { "ISO: $it" },
+                        exposureTime?.let { "Exposure: $it s" },
+                        datetime?.let { "Taken: $it" },
+                        if (width > 0 && height > 0) "Resolution: ${width}x${height}" else null,
+                        if (sizeBytes > 0) "File size: ${sizeBytes / 1024} KB" else null,
+                        lensMake?.let { "Lens make: $it" },
+                        aperture?.let { "Aperture: f/$it" },
+                        shutterSpeed?.let { "Shutter speed: $it s" }
+                    ).forEach { appendLine(it) }
+                }
+                if (exifInfo.isNotEmpty()) {
+                    return@withContext exifInfo
+                }
             }
-            if (exifInfo.isNotEmpty()) {
-                return exifInfo
-            }
+        } catch (e: Exception) {
+            Log.e("PreviewDialogFragment", "Error loading EXIF for $uri", e)
+            return@withContext "Error loading EXIF"
         }
-        return null
-    }
-
-    private fun getCachedPreview(uri: Uri, imageLoader: ImageLoader): Drawable? {
-        val memoryCacheKey = MemoryCache.Key(CacheHelper.getPreviewCacheKey(uri))
-        val cachedHighResDrawable = imageLoader.memoryCache?.get(memoryCacheKey)
-        return cachedHighResDrawable?.bitmap?.toDrawable(resources)
+        return@withContext null
     }
 
     override fun onStart() {
