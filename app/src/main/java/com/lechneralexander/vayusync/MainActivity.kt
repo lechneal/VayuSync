@@ -65,11 +65,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         private const val KEY_SOURCE_FOLDER_URI = "sourceFolderUri"
         private const val KEY_DESTINATION_FOLDER_URI = "destinationFolderUri"
         private const val KEY_SHOW_IMAGE_INFO_OVERLAY = "showImageInfoOverlay"
+        private const val KEY_SHOW_MEDIA_TYPE_ICON = "showMediaTypeIcon"
         private const val KEY_SORT_CRITERION = "sortCriterion"
         private const val KEY_SORT_ORDER = "sortOrder"
         private const val KEY_ACTIVE_MIME_TYPE_FILTERS = "activeMimeTypeFilters"
 
         private const val PAYLOAD_INFO_VISIBILITY_CHANGED = "PAYLOAD_INFO_VISIBILITY_CHANGED"
+        private const val PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED = "PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED"
 
         private const val MIME_TYPE_MENU_ITEM_GROUP_ID = 1001 // Unique group ID
         private const val MIME_TYPE_MENU_ITEM_ID_OFFSET = 10000 // Start IDs for MIME types
@@ -77,6 +79,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private val currentSort = CurrentSort()
     private var showImageInfoOverlay = false
+    private var showMediaTypeIcon = true
 
     private lateinit var loadingProgressBar: ProgressBar
     private lateinit var recyclerView: RecyclerView
@@ -121,6 +124,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         //Init prefs
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         showImageInfoOverlay = prefs.getBoolean(KEY_SHOW_IMAGE_INFO_OVERLAY, false)
+        showMediaTypeIcon = prefs.getBoolean(KEY_SHOW_MEDIA_TYPE_ICON, true)
 
         val savedCriterionName = prefs.getString(KEY_SORT_CRITERION, SortCriterion.FILENAME.toString())
         val savedOrderName = prefs.getString(KEY_SORT_ORDER, SortOrder.ASCENDING.toString())
@@ -273,6 +277,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         menu?.let { safeMenu ->
             updateSortMenuChecks(safeMenu)
             safeMenu.findItem(R.id.action_toggle_info)?.isChecked = showImageInfoOverlay
+            safeMenu.findItem(R.id.action_toggle_media_type_icon)?.isChecked = showMediaTypeIcon
 
             // Dynamically build MIME type filter menu
             val filterMenuParent = safeMenu.findItem(R.id.action_filter_mime_type)
@@ -401,6 +406,17 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
 
                 adapter.notifyItemRangeChanged(0, shownFileInfos.size, PAYLOAD_INFO_VISIBILITY_CHANGED) // Use payload
+                return true
+            }
+            R.id.action_toggle_media_type_icon -> {
+                showMediaTypeIcon = !showMediaTypeIcon
+                item.isChecked = showMediaTypeIcon
+
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+                    putBoolean(KEY_SHOW_MEDIA_TYPE_ICON, showMediaTypeIcon)
+                }
+
+                adapter.notifyItemRangeChanged(0, shownFileInfos.size, PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED)
                 return true
             }
             else -> return super.onOptionsItemSelected(item)
@@ -852,9 +868,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
+            val imageInfo = getImageInfo(position)
             if (payloads.contains(PAYLOAD_INFO_VISIBILITY_CHANGED)) {
-                // Only update the info visibility part of the ViewHolder
-                holder.loadImageInfoOverlay(getImageInfo(position))
+                holder.loadImageInfoOverlay(imageInfo)
+            } else if (payloads.contains(PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED)) {
+                holder.loadMediaTypeIcon(imageInfo)
             } else {
                 super.onBindViewHolder(holder, position, payloads)
             }
@@ -977,9 +995,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 this@ImageAdapter.cancelAllPendingPreviews();
             }
 
-            private fun loadMediaTypeIcon(image: FileInfo) {
-                val mimeType = image.mimeType
+            fun loadMediaTypeIcon(image: FileInfo) {
+                if (!showMediaTypeIcon) {
+                    mediaTypeIcon.visibility = View.GONE
+                    return
+                }
 
+                val mimeType = image.mimeType
                 when {
                     mimeType.startsWith("video") -> {
                         mediaTypeIcon.setImageResource(R.drawable.ic_type_video)

@@ -14,11 +14,9 @@ Major:
     - use icon as loading spinner
     - lighter placeholder images / reuse icon?
     - about page
-    - rething EXIF data (only show some, on click show next?)
-    - implement recommended actiosn by google
+    - rethink EXIF data (only show some, on click show next?)
+    - implement recommended actions by google
 - menu with settings:
-    - menu
-    - file type filter in settings? allow RAW?
     - recyclerview col count for landscape and larger screens? Configurable in settings?
     - disk cache size, mem cache size?
     - disable raw full preview per default (stick to exif thumbnail or use embedded jpeg, and allow click, but use dialog cached value if available) and only allow conditionally in settings?
@@ -75,6 +73,7 @@ Done:
     - file type filter
     - file type filter better performance: no reload from disk
     - file type filter: if filter is active add some visual feedback
+    - check if media icons should be shown
 - design
     - consistent material color usage
     - revisit media icons: border instead of background?

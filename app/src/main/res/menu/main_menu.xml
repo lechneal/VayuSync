@@ -60,4 +60,10 @@
         android:checkable="true"
         android:title="Show File Info"
         app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_toggle_media_type_icon"
+        android:checkable="true"
+        android:title="Show Orientation/Type Icon"
+        app:showAsAction="never" />
 </menu>
