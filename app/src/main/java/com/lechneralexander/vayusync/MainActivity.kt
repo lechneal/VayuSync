@@ -736,11 +736,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private fun getImageSorter(): Comparator<FileInfo> =
         when (currentSort.criterion) {
-            SortCriterion.URI -> compareBy<FileInfo> { it.uri.toString() }
+            SortCriterion.URI -> compareBy { it.uri.toString() }
             SortCriterion.FILENAME -> compareBy { it.fileName.lowercase() }
             SortCriterion.FILETYPE -> compareBy { it.mimeType }
             SortCriterion.FILESIZE -> compareBy { it.fileSize }
-            SortCriterion.LAST_MODIFIED -> compareBy { it.lastModified }
+            SortCriterion.LAST_MODIFIED -> compareBy<FileInfo> { it.lastModified }.thenBy { it.fileName }
         }.let {
             if (currentSort.order == SortOrder.ASCENDING) it else it.reversed()
         }

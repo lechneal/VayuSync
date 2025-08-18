@@ -1,7 +1,6 @@
 Major:
 - bugs
     - raw takes a very long time. Show loading spinner for thumbnail -> preview, and popup cache --> full preview + exif. Somehow cancel takes a long time -- run on separate thread after all? Also not sure if cancel works, seems to fetch all exif previews first. Also cancel and restart coil if filter or sort changes. Cancel preview upon scrolling, so instead focus is on thumbnails again.
-    - modified date doesn't seem to sort properly, some files are in wrong order. Not millisecond resolution? Other possibilities?
 - Advanced copy features
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
     - [huge] Copy while app in background = add foreground service + android notification
@@ -16,6 +15,7 @@ Major:
     - about page
     - rethink EXIF data (only show some, on click show next?)
     - implement recommended actions by google
+    - image info background and text colors
 - menu with settings:
     - recyclerview col count for landscape and larger screens? Configurable in settings?
     - disk cache size, mem cache size?
