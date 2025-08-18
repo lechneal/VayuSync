@@ -25,14 +25,12 @@
 
     <ImageView
         android:id="@+id/mediaTypeIcon"
-        android:layout_width="12dp"
-        android:layout_height="12dp"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:alpha="0.5"
         android:layout_gravity="top|start"
         android:layout_margin="8dp"
         android:src="@drawable/ic_type_video"
-        android:alpha="0.8"
-        app:tint="?attr/colorOnPrimary"
-        android:background="?attr/colorPrimary"
         android:visibility="visible" />
 
     <!-- Info Overlay -->

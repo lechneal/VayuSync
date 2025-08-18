@@ -1,18 +1,17 @@
 Major:
 - bugs
-    - opening preview takes a long time, would need some visual feedback first
+    - raw takes a very long time. Show loading spinner for thumbnail -> preview, and popup cache --> full preview + exif. Somehow cancel takes a long time -- run on separate thread after all? Also not sure if cancel works, seems to fetch all exif previews first. Also cancel and restart coil if filter or sort changes. Cancel preview upon scrolling, so instead focus is on thumbnails again.
+    - modified date doesn't seem to sort properly, some files are in wrong order. Not millisecond resolution? Other possibilities?
 - Advanced copy features
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
     - [huge] Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
 - improve design
-    - revisit color scheme, use material design?
+    - different icon for already copied (e.g. save icon)
     - hide source/destination after setting?
     - add icons to buttons
     - different button color or text if folder not selected
     - use icon as loading spinner
-    - colors?
-    - revisit media icons: border instead of background?
     - lighter placeholder images / reuse icon?
     - about page
     - rething EXIF data (only show some, on click show next?)
@@ -22,6 +21,7 @@ Major:
     - file type filter in settings? allow RAW?
     - recyclerview col count for landscape and larger screens? Configurable in settings?
     - disk cache size, mem cache size?
+    - disable raw full preview per default (stick to exif thumbnail or use embedded jpeg, and allow click, but use dialog cached value if available) and only allow conditionally in settings?
 - image preview
     - also allow moving to next/prev image
     - preload next/prev image
@@ -77,3 +77,5 @@ Done:
     - file type filter: if filter is active add some visual feedback
 - design
     - consistent material color usage
+    - revisit media icons: border instead of background?
+

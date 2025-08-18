@@ -768,18 +768,31 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     ExifInterface.ORIENTATION_UNDEFINED
                 )
 
-                return when (exifOrientation) {
+                val originalWidth = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0)
+                val originalHeight = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0)
+                val (effectiveWidth, effectiveHeight) = when (exifOrientation) {
                     ExifInterface.ORIENTATION_ROTATE_90,
                     ExifInterface.ORIENTATION_ROTATE_270,
-                    ExifInterface.ORIENTATION_TRANSPOSE,
-                    ExifInterface.ORIENTATION_TRANSVERSE -> Orientation.PORTRAIT
-
+                    ExifInterface.ORIENTATION_TRANSPOSE,  // Rotated and flipped
+                    ExifInterface.ORIENTATION_TRANSVERSE -> { // Rotated and flipped
+                        Pair(originalHeight, originalWidth)
+                    }
                     ExifInterface.ORIENTATION_NORMAL,
                     ExifInterface.ORIENTATION_ROTATE_180,
                     ExifInterface.ORIENTATION_FLIP_HORIZONTAL,
-                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> Orientation.LANDSCAPE
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                        Pair(originalWidth, originalHeight)
+                    }
+                    else -> {
+                        Pair(originalWidth, originalHeight)
+                    }
+                }
 
-                    else -> Orientation.UNDEFINED // default fallback
+                return when {
+                    effectiveWidth == 0 || effectiveHeight == 0 -> Orientation.UNDEFINED
+                    effectiveWidth > effectiveHeight -> Orientation.LANDSCAPE
+                    effectiveHeight > effectiveWidth -> Orientation.PORTRAIT
+                    else -> Orientation.UNDEFINED
                 }
             }
         } catch (e: Exception) {
@@ -828,7 +841,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         fun selectAll() {
             images.forEach { selectedItems.add(it) }
-            notifyDataSetChanged()
+            notifyItemRangeChanged(0, images.size)
             actionMode?.invalidate()
         }
 
@@ -855,8 +868,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         override fun onViewRecycled(holder: ViewHolder) {
+            holder.cancelPendingPreview()
             super.onViewRecycled(holder)
-            holder.cancelPendingPreview();
         }
 
         fun cancelAllPendingPreviews() {
