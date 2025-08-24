@@ -27,6 +27,7 @@ class VayuApp: Application() {
                     .maxSizePercent(0.25) // 25% of available memory
                     .build()
             }
+            //TODO remove
             .diskCache {
                 DiskCache.Builder()
                     .directory(File(this.cacheDir, diskCacheName))

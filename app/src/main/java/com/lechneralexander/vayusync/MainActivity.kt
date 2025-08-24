@@ -31,6 +31,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -47,15 +48,19 @@ import com.lechneralexander.vayusync.copy.ImageToCopy
 import com.lechneralexander.vayusync.extensions.setTint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.ln
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
@@ -110,6 +115,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private lateinit var resumeButton: ImageButton
     private lateinit var sourceFolderPickerLauncher: ActivityResultLauncher<Uri?>
     private lateinit var destFolderPickerLauncher: ActivityResultLauncher<Uri?>
+
+    // Jobs
+    private var debounceRestartPreviewJob: Job? = null
 
     // To manage the contextual action mode
     private var actionMode: ActionMode? = null
@@ -724,6 +732,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     private fun refreshShownImages() {
+        adapter.cancelAllPendingPreviews()
+
         shownFileInfos.clear()
         shownFileInfos.addAll(allFileInfos
             .filter { activeMimeTypeFilters.isEmpty() || activeMimeTypeFilters.contains(it.mimeType) }
@@ -826,7 +836,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     inner class ImageAdapter(private val images: List<FileInfo>) :
         RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
-        private val selectedItems = mutableSetOf<FileInfo>()
+        private val selectedItems = mutableListOf<FileInfo>()
 
         fun getSelectedCount() = selectedItems.size
         fun getSelectedItems(): List<FileInfo> = selectedItems.toList()
@@ -856,6 +866,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         fun selectAll() {
+            selectedItems.clear()
             images.forEach { selectedItems.add(it) }
             notifyItemRangeChanged(0, images.size)
             actionMode?.invalidate()
@@ -920,6 +931,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private val infoOverlay: LinearLayout = itemView.findViewById(R.id.infoOverlay)
             private val infoFileName: TextView = itemView.findViewById(R.id.infoFileName)
             private val infoFileSizeAndDate: TextView = itemView.findViewById(R.id.infoFileSizeAndDate)
+            // Jobs
+            private var debouncePreviewJob: Job? = null
 
             init {
                 itemView.setOnClickListener {
@@ -942,11 +955,16 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             fun cancelPendingPreview() {
+                debouncePreviewJob?.cancel()
                 this.imageView.dispose();
             }
 
             fun bind(fileInfo: FileInfo, isSelected: Boolean) {
-                loadImage(fileInfo.uri)
+                imageView.tag = fileInfo.uri // Tag to verify in listeners
+
+                this@MainActivity.lifecycleScope.launch {
+                    loadImage(fileInfo.uri)
+                }
                 loadMediaTypeIcon(fileInfo)
                 loadSelectionBadge(fileInfo, isSelected)
                 loadImageInfoOverlay(fileInfo)
@@ -988,8 +1006,15 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private fun showPreview(imageUri: Uri) {
                 val dialog = PreviewDialogFragment.newInstance(imageUri)
                 dialog.show(this@MainActivity.supportFragmentManager, "preview")
-                this@MainActivity.supportFragmentManager.setFragmentResultListener("preview_closed", this@MainActivity) { _, _ ->
-                    this@ImageAdapter.restartVisiblePreviews()
+                this@MainActivity.supportFragmentManager.setFragmentResultListener(
+                    "preview_closed",
+                    this@MainActivity
+                ) { _, _ ->
+                    debounceRestartPreviewJob?.cancel()
+                    debounceRestartPreviewJob = this@MainActivity.lifecycleScope.launch {
+                        delay(500) // Adjust the debounce delay as needed (e.g., 300ms)
+                        this@ImageAdapter.restartVisiblePreviews()
+                    }
                 }
 
                 this@ImageAdapter.cancelAllPendingPreviews();
@@ -1024,14 +1049,12 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
 
-            private fun loadImage(imageUri: Uri) {
-                imageView.tag = imageUri // Tag to verify in listeners
+            private suspend fun loadImage(imageUri: Uri) {
+                val loadedFromDiskCache = loadImageFromDiskCacheIfAvailable(imageUri)
 
-                if (loadImageFromDiskCacheIfAvailable(imageUri)) {
-                    return
+                if (!loadedFromDiskCache) {
+                    loadThumbnail(imageUri)
                 }
-
-                loadThumbnail(imageUri)
             }
 
             private fun loadThumbnail(
@@ -1049,9 +1072,20 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     )
                     listener(
                         onSuccess = { _, _ ->
-                            // Only load high-res if still bound to same URI
-                            if (imageView.tag == imageUri) {
-                                loadPreview(imageUri)
+                            debouncePreviewJob?.cancel()
+
+                            if (imageView.tag != imageUri) {
+                                return@listener
+                            }
+
+                            debouncePreviewJob = itemView.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+                                try {
+                                    delay(500L)
+                                    Log.d("MainActivity", "Loading preview for: $imageUri")
+                                    if (imageView.tag == imageUri && isActive) { // Check tag AND coroutine status
+                                        loadPreview(imageUri)
+                                    }
+                                } catch (_: CancellationException) { /* Expected */ }
                             }
                         }
                     )
@@ -1068,23 +1102,34 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
                     listener(
                         onSuccess = { _, metadata ->
-                            val drawable = metadata.drawable
-                            val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return@listener
+                            Log.i("MainActivity", "Storing bitmap to cache for: $imageUri")
+                            if (imageView.tag == imageUri) {
+                                val drawable = metadata.drawable
+                                val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return@listener
 
-                            // Save bitmap asynchronously
-                            CoroutineScope(Dispatchers.IO).launch {
-                                CacheHelper.saveBitmapToCache(this@MainActivity, imageUri, bitmap)
+                                itemView.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+                                    CacheHelper.saveBitmapToCache(
+                                        this@MainActivity,
+                                        imageUri,
+                                        bitmap
+                                    )
+                                }
                             }
                         }
                     )
                 }
             }
 
-            private fun loadImageFromDiskCacheIfAvailable(imageUri: Uri): Boolean {
+            private suspend fun loadImageFromDiskCacheIfAvailable(imageUri: Uri): Boolean {
                 val diskCache = getDiskCache()
-                val cachedFile = File(diskCache, CacheHelper.getDiskCacheKey(imageUri))
+                val cachedFile = CacheHelper.getCachedFile(diskCache, imageUri)
 
-                if (cachedFile.exists()) {
+                val fileExists = withContext(Dispatchers.IO) { // Switch to IO thread for exists()
+                    cachedFile?.exists() == true
+                }
+
+                if (fileExists) {
+                    Log.d("MainActivity", "Loading image from disk cache: $cachedFile")
                     imageView.load(cachedFile, getImageLoader()) {
                         memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))
                         placeholder(R.drawable.ic_image_loading)
@@ -1094,6 +1139,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     }
                     return true
                 }
+                Log.d("MainActivity", "No cached image found for: $imageUri")
                 return false
             }
         }
