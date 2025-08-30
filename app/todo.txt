@@ -1,9 +1,4 @@
 Major:
-- performance improvements
-    - preload other images when idle
-    - Check for embedded images
-    - show loading spinner on thumbnail while high res is loading (as raw is taking long)
-    - add cache for full preview (and exif?)
 - image preview
     - also allow moving to next/prev image
     - preload next/prev image
@@ -11,7 +6,12 @@ Major:
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
     - [huge] Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
+- bugs
+    - (is this still happening?) orientation no longer shown
 - improve design
+    - show loading spinner on thumbnail while high res is loading (as raw is taking long)
+    - show loading spinner on full preview until full image is loaded
+    - rethink EXIF data (only show some, on click show next?)
     - different icon for already copied (e.g. save icon)
     - hide source/destination after setting?
     - add icons to buttons
@@ -19,16 +19,20 @@ Major:
     - use icon as loading spinner
     - lighter placeholder images / reuse icon?
     - about page
-    - rethink EXIF data (only show some, on click show next?)
     - implement recommended actions by google
     - image info background and text colors
+- add initial walkthrough
+- performance improvements
+    - preload other images when idle
+    - move load from disk cache logic into Coil fetcher?
+    - Check for embedded images explicitly using the EXIF interface instead of relying on the contentresolver
+    - add cache for full preview (and exif?)
 - menu with settings:
     - recyclerview col count for landscape and larger screens? Configurable in settings?
     - disk cache size, mem cache size?
     - disable raw full preview per default (stick to exif thumbnail or use embedded jpeg, and allow click, but use dialog cached value if available) and only allow conditionally in settings?
-- add initial walkthrough
 - Advanced cache
-    - use proper LRU cache
+    - use proper cache from coil
     - use more stable cache keys
 
 
@@ -88,5 +92,6 @@ Done:
     - debounce loading higher res preview
     - debounce restarting of previews
     - better scope handling
+    - load thumbnail not async but instantly, for smoother scrolling
 - bugs
     - fix selection order, copy in the order of items being selected

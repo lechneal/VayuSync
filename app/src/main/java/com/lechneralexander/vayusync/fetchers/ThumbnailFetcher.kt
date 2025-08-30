@@ -18,7 +18,7 @@ class ThumbnailFetcher(
 
     override suspend fun fetch(): FetchResult {
         // Get the target size from the request's parameters.
-        val targetSize = options.parameters.value("target_size") as? Int ?: 256
+        val targetSize = options.parameters.value("target_size") as? Int ?: 512
 
         // Request a higher-res thumbnail from the system to get better quality.
         val bitmap = contentResolver.loadThumbnail(data, Size(targetSize, targetSize), null)

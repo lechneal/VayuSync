@@ -962,9 +962,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             fun bind(fileInfo: FileInfo, isSelected: Boolean) {
                 imageView.tag = fileInfo.uri // Tag to verify in listeners
 
-                this@MainActivity.lifecycleScope.launch {
-                    loadImage(fileInfo.uri)
-                }
+                loadImage(fileInfo)
                 loadMediaTypeIcon(fileInfo)
                 loadSelectionBadge(fileInfo, isSelected)
                 loadImageInfoOverlay(fileInfo)
@@ -1049,11 +1047,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
 
-            private suspend fun loadImage(imageUri: Uri) {
-                val loadedFromDiskCache = loadImageFromDiskCacheIfAvailable(imageUri)
-
-                if (!loadedFromDiskCache) {
-                    loadThumbnail(imageUri)
+            private fun loadImage(image: FileInfo) {
+                loadThumbnail(image.uri)
+                this@MainActivity.lifecycleScope.launch {
+                    loadImageFromDiskCacheIfAvailable(image.uri)
                 }
             }
 
@@ -1129,6 +1126,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
 
                 if (fileExists) {
+                    cancelPendingPreview()
                     Log.d("MainActivity", "Loading image from disk cache: $cachedFile")
                     imageView.load(cachedFile, getImageLoader()) {
                         memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))

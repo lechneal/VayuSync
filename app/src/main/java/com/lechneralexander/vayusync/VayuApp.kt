@@ -2,7 +2,6 @@ package com.lechneralexander.vayusync
 
 import android.app.Application
 import coil.ImageLoader
-import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.util.DebugLogger
 import com.lechneralexander.vayusync.fetchers.ThumbnailFetcher
@@ -27,13 +26,12 @@ class VayuApp: Application() {
                     .maxSizePercent(0.25) // 25% of available memory
                     .build()
             }
-            //TODO remove
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(File(this.cacheDir, diskCacheName))
-                    .maxSizeBytes(100L * 1024 * 1024) // 100 MB
-                    .build()
-            }
+//            .diskCache {
+//                DiskCache.Builder()
+//                    .directory(File(this.cacheDir, diskCacheName))
+//                    .maxSizeBytes(100L * 1024 * 1024) // 100 MB
+//                    .build()
+//            }
             .build()
     }
 
