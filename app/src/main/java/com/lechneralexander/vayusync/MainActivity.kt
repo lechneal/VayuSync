@@ -44,6 +44,8 @@ import com.lechneralexander.vayusync.cache.CacheHelper
 import com.lechneralexander.vayusync.copy.ContentResolverFileCopier
 import com.lechneralexander.vayusync.copy.CopyViewModel
 import com.lechneralexander.vayusync.copy.ImageToCopy
+import com.lechneralexander.vayusync.extensions.formatBytes
+import com.lechneralexander.vayusync.extensions.formatTimestamp
 import com.lechneralexander.vayusync.extensions.getImageOrientation
 import com.lechneralexander.vayusync.extensions.setTint
 import kotlinx.coroutines.CoroutineScope
@@ -58,8 +60,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.ln
 
@@ -232,8 +232,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     if (progress.etaSeconds >= 0) "${formatDuration(progress.etaSeconds)} remaining"
                     else "Calculating..."
                 statusText.text =
-                    "${formatBytes(progress.copiedBytes)}/${formatBytes(progress.totalBytes)} bytes (${
-                        formatBytes(progress.speed.toLong())
+                    "${progress.copiedBytes.formatBytes()}/${progress.totalBytes.formatBytes()} bytes (${
+                        progress.speed.toLong().formatBytes()
                     }/s)"
 
                 copyProgressContainer.visibility = View.VISIBLE
@@ -575,19 +575,13 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 val imageInfo = shownFileInfos[position]
                 when (currentSort.criterion) {
                     SortCriterion.FILENAME -> imageInfo.fileName
-                    SortCriterion.FILESIZE -> formatBytes(imageInfo.fileSize) // Helper needed
+                    SortCriterion.FILESIZE -> imageInfo.fileSize.formatBytes() // Helper needed
                     SortCriterion.FILETYPE -> imageInfo.mimeType // Helper needed
-                    SortCriterion.LAST_MODIFIED -> formatTimestamp(imageInfo.lastModified) // Helper needed
+                    SortCriterion.LAST_MODIFIED -> imageInfo.lastModified.formatTimestamp()
                     SortCriterion.URI -> imageInfo.uri.lastPathSegment ?: "..." // Or some part of URI
                 }
             }
             .build()
-    }
-
-    private fun formatTimestamp(timestamp: Long): String {
-        if (timestamp <= 0) return "N/A"
-        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-        return sdf.format(Date(timestamp))
     }
 
     private fun checkPermissions(): Boolean {
@@ -931,8 +925,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 if (showImageInfoOverlay) {
                     infoOverlay.visibility = View.VISIBLE
                     infoFileName.text = fileInfo.fileName
-                    val sizeStr = formatBytes(fileInfo.fileSize) // Use helper from MainActivity or move it
-                    val dateStr = formatTimestamp(fileInfo.lastModified) // Use helper from MainActivity or move it
+                    val sizeStr = fileInfo.fileSize.formatBytes()
+                    val dateStr = fileInfo.lastModified.formatTimestamp()
                     infoFileSizeAndDate.text = "$sizeStr - $dateStr"
                 } else {
                     infoOverlay.visibility = View.GONE

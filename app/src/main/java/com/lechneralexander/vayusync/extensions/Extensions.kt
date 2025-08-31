@@ -9,6 +9,9 @@ import android.util.TypedValue
 import android.view.MenuItem
 import androidx.exifinterface.media.ExifInterface
 import com.lechneralexander.vayusync.Orientation
+import java.text.SimpleDateFormat
+import java.util.Date
+import kotlin.math.ln
 
 
 fun MenuItem.setTint(context: Context, resourceId: Int) {
@@ -48,4 +51,18 @@ fun ContentResolver.getImageOrientation(imageUri: Uri): Orientation {
         Log.e("ImageUtils", "Error getting image orientation for $imageUri", e)
         Orientation.UNDEFINED
     }
+}
+
+fun Long.formatBytes(): String {
+    val unit = 1024
+    if (this < unit) return "$this B"
+    val exp = (ln(this.toDouble()) / ln(unit.toDouble())).toInt()
+    val prefix = "KMGTPE"[exp - 1]
+    return String.format("%.1f %sB", this / Math.pow(unit.toDouble(), exp.toDouble()), prefix)
+}
+
+fun Long.formatTimestamp(): String {
+    if (this <= 0) return "N/A"
+    val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+    return sdf.format(Date(this))
 }
