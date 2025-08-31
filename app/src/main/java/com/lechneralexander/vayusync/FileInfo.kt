@@ -14,4 +14,4 @@ data class FileInfo(
 
 enum class Orientation {PORTRAIT, LANDSCAPE, UNDEFINED}
 
-enum class CopyStatus {NOT_COPIED, COPYING, COPIED}
+enum class CopyStatus {LOADING, NOT_COPIED, COPYING, COPIED}

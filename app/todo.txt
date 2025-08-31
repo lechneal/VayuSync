@@ -1,4 +1,5 @@
 Major:
+- follow suggested best practices
 - image preview
     - also allow moving to next/prev image
     - preload next/prev image
@@ -93,5 +94,6 @@ Done:
     - debounce restarting of previews
     - better scope handling
     - load thumbnail not async but instantly, for smoother scrolling
+    - parallelize load images and load already copied files
 - bugs
     - fix selection order, copy in the order of items being selected

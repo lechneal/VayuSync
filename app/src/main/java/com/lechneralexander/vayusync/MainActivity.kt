@@ -52,6 +52,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -260,7 +261,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 adapter.notifyItemChanged(index)
             }
         }
-        allFileInfos.forEach { if (it.copyStatus == CopyStatus.NOT_COPIED) it.copyStatus = CopyStatus.NOT_COPIED }
+        allFileInfos.forEach {
+            it.copyStatus = if (alreadyCopiedImages.contains(it.fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
+        }
     }
 
     private fun saveActiveMimeTypeFilters() {
@@ -532,7 +535,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             return
         }
         scope.launch(Dispatchers.IO) {
-            updateAlreadyCopiedImages(outputUri)
+            loadDestinationFiles(outputUri)
             withContext(Dispatchers.Main) {
                 refreshCopyStatus()
             }
@@ -614,7 +617,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
     }
 
-    private fun loadImageFilesFromUri(treeUri: Uri) {
+    private fun loadSourceFiles(treeUri: Uri) {
         val context = this
         val foundFiles = mutableListOf<FileInfo>()
         val currentDiscoveredMimeTypes = mutableSetOf<String>() // Local set for this scan
@@ -671,7 +674,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                                     mimeType,
                                     lastModified,
                                     Orientation.UNDEFINED,
-                                    if (alreadyCopiedImages.contains(fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
+                                    CopyStatus.LOADING
                                 )
                             )
                         }
@@ -687,7 +690,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         this.allFileInfos.addAll(foundFiles)
     }
 
-    private fun updateAlreadyCopiedImages(outputUri: Uri?) {
+    private fun loadDestinationFiles(outputUri: Uri?) {
         if (outputUri == null) {
             alreadyCopiedImages.clear()
             return
@@ -703,10 +706,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         scope.launch(Dispatchers.IO) {
-            //TODO run in parallel
-            updateAlreadyCopiedImages(getSavedDestinationFolder())
-
-            loadImageFilesFromUri(folderUri)
+            val loadDestinationFilesJob = async { loadDestinationFiles(getSavedDestinationFolder()) }
+            val loadSourceFilesJob = async { loadSourceFiles(folderUri) }
+            loadDestinationFilesJob.join()
+            loadSourceFilesJob.join()
+            refreshCopyStatus()
 
             withContext(Dispatchers.Main) {
                 refreshShownImages()
@@ -937,20 +941,25 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 fileInfo: FileInfo,
                 isSelected: Boolean
             ) {
-                if (isSelected) {
-                    selectionBadge.setImageResource(R.drawable.ic_check_circle)
-                    selectionBadge.visibility = View.VISIBLE
-                    selectionBadge.alpha = 1f
-                } else if (fileInfo.copyStatus == CopyStatus.COPIED) {
-                    selectionBadge.setImageResource(R.drawable.ic_check_circle)
-                    selectionBadge.visibility = View.VISIBLE
-                    selectionBadge.alpha = 0.5f
-                } else if (fileInfo.copyStatus == CopyStatus.COPYING) {
-                    selectionBadge.setImageResource(R.drawable.ic_image_loading)
-                    selectionBadge.visibility = View.VISIBLE
-                    selectionBadge.alpha = 1f
-                } else {
-                    selectionBadge.visibility = View.GONE
+                when {
+                    isSelected -> {
+                        selectionBadge.setImageResource(R.drawable.ic_check_circle)
+                        selectionBadge.visibility = View.VISIBLE
+                        selectionBadge.alpha = 1f
+                    }
+                    fileInfo.copyStatus == CopyStatus.COPIED -> {
+                        selectionBadge.setImageResource(R.drawable.ic_check_circle)
+                        selectionBadge.visibility = View.VISIBLE
+                        selectionBadge.alpha = 0.5f
+                    }
+                    fileInfo.copyStatus == CopyStatus.COPYING -> {
+                        selectionBadge.setImageResource(R.drawable.ic_image_loading) // Consider a specific copying icon
+                        selectionBadge.visibility = View.VISIBLE
+                        selectionBadge.alpha = 1f
+                    }
+                    else -> {
+                        selectionBadge.visibility = View.GONE
+                    }
                 }
             }
 
