@@ -30,7 +30,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
@@ -45,6 +44,7 @@ import com.lechneralexander.vayusync.cache.CacheHelper
 import com.lechneralexander.vayusync.copy.ContentResolverFileCopier
 import com.lechneralexander.vayusync.copy.CopyViewModel
 import com.lechneralexander.vayusync.copy.ImageToCopy
+import com.lechneralexander.vayusync.extensions.getImageOrientation
 import com.lechneralexander.vayusync.extensions.setTint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -709,6 +709,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         scope.launch(Dispatchers.IO) {
+            //TODO run in parallel
             updateAlreadyCopiedImages(getSavedDestinationFolder())
 
             loadImageFilesFromUri(folderUri)
@@ -777,53 +778,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private fun lazyLoadExifOrientation(images: List<FileInfo>) {
         scope.launch(Dispatchers.IO) {
             images.forEach {
-                it.orientation = readOrientation(it)
+                it.orientation = contentResolver.getImageOrientation(it.uri)
             }
             scope.launch(Dispatchers.Main) {
                 adapter.notifyItemRangeChanged(0, images.size)
             }
-        }
-    }
-
-    private fun readOrientation(image: FileInfo): Orientation {
-        return try {
-            contentResolver.openInputStream(image.uri).use { input ->
-                val exif = ExifInterface(input!!)
-                val exifOrientation = exif.getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_UNDEFINED
-                )
-
-                val originalWidth = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0)
-                val originalHeight = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0)
-                val (effectiveWidth, effectiveHeight) = when (exifOrientation) {
-                    ExifInterface.ORIENTATION_ROTATE_90,
-                    ExifInterface.ORIENTATION_ROTATE_270,
-                    ExifInterface.ORIENTATION_TRANSPOSE,  // Rotated and flipped
-                    ExifInterface.ORIENTATION_TRANSVERSE -> { // Rotated and flipped
-                        Pair(originalHeight, originalWidth)
-                    }
-                    ExifInterface.ORIENTATION_NORMAL,
-                    ExifInterface.ORIENTATION_ROTATE_180,
-                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL,
-                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
-                        Pair(originalWidth, originalHeight)
-                    }
-                    else -> {
-                        Pair(originalWidth, originalHeight)
-                    }
-                }
-
-                return when {
-                    effectiveWidth == 0 || effectiveHeight == 0 -> Orientation.UNDEFINED
-                    effectiveWidth > effectiveHeight -> Orientation.LANDSCAPE
-                    effectiveHeight > effectiveWidth -> Orientation.PORTRAIT
-                    else -> Orientation.UNDEFINED
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(MainActivity.javaClass.name, "Error", e)
-            Orientation.UNDEFINED
         }
     }
 
