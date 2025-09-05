@@ -16,7 +16,9 @@ import android.widget.VideoView
 import androidx.exifinterface.media.ExifInterface
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.lifecycleScope
+import coil.ImageLoader
 import coil.load
+import coil.request.ImageRequest
 import com.github.chrisbanes.photoview.OnSingleFlingListener
 import com.github.chrisbanes.photoview.PhotoView
 import com.lechneralexander.vayusync.cache.CacheHelper
@@ -105,8 +107,6 @@ class PreviewDialogFragment : DialogFragment() {
         videoView.visibility = View.GONE
         videoView.stopPlayback()
 
-        Log.d("Preview", "Loading file: $uri, mime: $mime")
-
         if (mime?.startsWith("video/") == true) {
             videoView.setVideoURI(uri)
             videoView.visibility = View.VISIBLE
@@ -127,14 +127,20 @@ class PreviewDialogFragment : DialogFragment() {
             }
         } else {
             Log.d("Preview", "Loading image: $uri, mime: $mime")
-            val imageLoader = (requireContext().applicationContext as VayuApp).getImageLoader()
-
-            imageView.load(uri, imageLoader) {
+            imageView.load(uri, getImageLoader()) {
                 memoryCacheKey(CacheHelper.getFullViewCacheKey(uri))
                 placeholderMemoryCacheKey(CacheHelper.getPreviewCacheKey(uri))
                 placeholder(R.drawable.ic_image_loading)
                 error(R.drawable.ic_image_load_error)
                 crossfade(true)
+                listener(
+                    onSuccess = { _, _ ->
+                        preloadAdjacentImages(currentPosition, 3)
+                    },
+                    onError = { _, result ->
+                        Log.e("Preview", "Error loading image $uri: ${result.throwable}")
+                    }
+                )
             }
 
             imageView.visibility = View.VISIBLE
@@ -148,6 +154,55 @@ class PreviewDialogFragment : DialogFragment() {
             exifView.text = exifInfoString ?: "No EXIF information!"
         }
     }
+
+    private fun getImageLoader(): ImageLoader =
+        (requireContext().applicationContext as VayuApp).getImageLoader()
+
+    private fun preloadAdjacentImages(currentIndex: Int, count: Int) {
+        val context = context ?: return
+
+        // Preload previous images
+        for (i in 1..count) {
+            val prevIndex = currentIndex - i
+            if (prevIndex >= 0) {
+                val prevUri = imageUris[prevIndex]
+                if (context.contentResolver.getType(prevUri)?.startsWith("image/") == true) {
+                    val request = ImageRequest.Builder(context)
+                        .data(prevUri)
+                        .memoryCacheKey(CacheHelper.getFullViewCacheKey(prevUri))
+                        .build()
+                    getImageLoader().enqueue(request)
+                    Log.d("Preview", "Enqueued preloading for previous image at index $prevIndex: $prevUri")
+                }
+            }
+        }
+
+        // Preload next images
+        for (i in 1..count) {
+            val nextIndex = currentIndex + i
+            if (nextIndex < imageUris.size) {
+                val nextUri = imageUris[nextIndex]
+                // Check if it's an image file before attempting to preload
+                if (context.contentResolver.getType(nextUri)?.startsWith("image/") == true) {
+                    val request = ImageRequest.Builder(context)
+                        .data(nextUri)
+                        .memoryCacheKey(CacheHelper.getFullViewCacheKey(nextUri))
+                        // Optional: Add other Coil configurations like diskCachePolicy if needed
+                        .build()
+                    getImageLoader().enqueue(request)
+                    Log.d("Preview", "Enqueued preloading for next image at index $nextIndex: $nextUri")
+                } else {
+                    Log.d("Preview", "Skipping preload for next item at index $nextIndex (not an image): $nextUri")
+                    // Optionally, if you hit a non-image, you might break or continue
+                    // depending on whether you expect images to be contiguous.
+                    // For now, it continues to check up to MAX_IMAGES_TO_PRELOAD_PER_DIRECTION.
+                }
+            } else {
+                break // No more images in this direction
+            }
+        }
+    }
+
 
     private fun createOnVideoFlingListener(
         onLeft: () -> Unit,
