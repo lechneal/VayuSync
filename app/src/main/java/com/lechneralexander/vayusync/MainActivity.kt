@@ -45,6 +45,7 @@ import com.lechneralexander.vayusync.copy.ContentResolverFileCopier
 import com.lechneralexander.vayusync.copy.CopyViewModel
 import com.lechneralexander.vayusync.copy.ImageToCopy
 import com.lechneralexander.vayusync.extensions.formatBytes
+import com.lechneralexander.vayusync.extensions.formatDuration
 import com.lechneralexander.vayusync.extensions.formatTimestamp
 import com.lechneralexander.vayusync.extensions.getImageOrientation
 import com.lechneralexander.vayusync.extensions.setTint
@@ -234,7 +235,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     progress.copiedBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
                 etaText.text =
-                    if (progress.etaSeconds >= 0) "${formatDuration(progress.etaSeconds)} remaining"
+                    if (progress.etaSeconds >= 0) "${progress.etaSeconds.formatDuration()} remaining"
                     else "Calculating..."
                 statusText.text =
                     "${progress.copiedBytes.formatBytes()}/${progress.totalBytes.formatBytes()} bytes (${
@@ -481,28 +482,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         gridLayoutManager.spanCount = newSpanCount
         recyclerView.requestLayout()
         gridLayoutManager.initialPrefetchItemCount = gridLayoutManager.spanCount * 2
-    }
-
-    //TODO
-    private fun formatBytes(bytes: Long): String {
-        val unit = 1024
-        if (bytes < unit) return "$bytes B"
-        val exp = (ln(bytes.toDouble()) / ln(unit.toDouble())).toInt()
-        val prefix = "KMGTPE"[exp - 1]
-        return String.format("%.1f %sB", bytes / Math.pow(unit.toDouble(), exp.toDouble()), prefix)
-    }
-
-    //TODO
-    fun formatDuration(seconds: Int): String {
-        return when {
-            seconds < 60 -> "$seconds s"
-            seconds < 3600 -> "${seconds / 60} min ${seconds % 60} s"
-            else -> {
-                val h = seconds / 3600
-                val m = (seconds % 3600) / 60
-                "$h h $m min"
-            }
-        }
     }
 
     private fun setupSourceFolderPicker() {

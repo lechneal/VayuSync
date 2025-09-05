@@ -66,3 +66,15 @@ fun Long.formatTimestamp(): String {
     val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
     return sdf.format(Date(this))
 }
+
+fun Int.formatDuration(): String {
+    return when {
+        this < 60 -> "$this s"
+        this < 3600 -> "${this / 60} min ${this % 60} s"
+        else -> {
+            val h = this / 3600
+            val m = (this % 3600) / 60
+            "$h h $m min"
+        }
+    }
+}
