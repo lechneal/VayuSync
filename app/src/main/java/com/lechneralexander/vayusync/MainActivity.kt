@@ -896,7 +896,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     if (actionMode != null) {
                         toggleSelection(bindingAdapterPosition)
                     } else {
-                        showPreview(getImageInfo(bindingAdapterPosition).uri)
+                        showPreview(bindingAdapterPosition)
                     }
                 }
 
@@ -905,7 +905,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         this@MainActivity.startActionMode(this@MainActivity)
                         toggleSelection(bindingAdapterPosition)
                     } else {
-                        showPreview(getImageInfo(bindingAdapterPosition).uri)
+                        showPreview(bindingAdapterPosition)
                     }
                     true
                 }
@@ -963,8 +963,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
 
-            private fun showPreview(imageUri: Uri) {
-                val dialog = PreviewDialogFragment.newInstance(imageUri)
+            private fun showPreview(position: Int) {
+                val dialog = PreviewDialogFragment.newInstance(
+                    shownFileInfos.map(FileInfo::uri).toList(),
+                    position
+                )
                 dialog.show(this@MainActivity.supportFragmentManager, "preview")
                 this@MainActivity.supportFragmentManager.setFragmentResultListener(
                     "preview_closed",

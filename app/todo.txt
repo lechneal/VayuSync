@@ -1,7 +1,6 @@
 Major:
 - follow suggested best practices
 - image preview
-    - also allow moving to next/prev image
     - preload next/prev image
 - Advanced copy features
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
@@ -97,3 +96,5 @@ Done:
     - parallelize load images and load already copied files
 - bugs
     - fix selection order, copy in the order of items being selected
+- image preview
+    - also allow moving to next/prev image
