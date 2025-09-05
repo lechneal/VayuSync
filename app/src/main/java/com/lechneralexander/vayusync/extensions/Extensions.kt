@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Log
 import android.util.TypedValue
 import android.view.MenuItem
+import androidx.annotation.AttrRes
 import androidx.exifinterface.media.ExifInterface
 import com.lechneralexander.vayusync.Orientation
 import java.text.SimpleDateFormat
@@ -14,7 +15,7 @@ import java.util.Date
 import kotlin.math.ln
 
 
-fun MenuItem.setTint(context: Context, resourceId: Int) {
+fun MenuItem.setTint(context: Context, @AttrRes resourceId: Int) {
     val typedValue = TypedValue()
     context.theme.resolveAttribute(resourceId, typedValue, true)
     this.setIconTintList(ColorStateList.valueOf(typedValue.data))
@@ -65,4 +66,16 @@ fun Long.formatTimestamp(): String {
     if (this <= 0) return "N/A"
     val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
     return sdf.format(Date(this))
+}
+
+fun Int.formatDuration(): String {
+    return when {
+        this < 60 -> "$this s"
+        this < 3600 -> "${this / 60} min ${this % 60} s"
+        else -> {
+            val h = this / 3600
+            val m = (this % 3600) / 60
+            "$h h $m min"
+        }
+    }
 }

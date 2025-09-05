@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -45,6 +46,7 @@ import com.lechneralexander.vayusync.copy.ContentResolverFileCopier
 import com.lechneralexander.vayusync.copy.CopyViewModel
 import com.lechneralexander.vayusync.copy.ImageToCopy
 import com.lechneralexander.vayusync.extensions.formatBytes
+import com.lechneralexander.vayusync.extensions.formatDuration
 import com.lechneralexander.vayusync.extensions.formatTimestamp
 import com.lechneralexander.vayusync.extensions.getImageOrientation
 import com.lechneralexander.vayusync.extensions.setTint
@@ -62,7 +64,6 @@ import kotlinx.coroutines.withContext
 import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.ln
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
     companion object {
@@ -75,6 +76,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         private const val KEY_SORT_CRITERION = "sortCriterion"
         private const val KEY_SORT_ORDER = "sortOrder"
         private const val KEY_ACTIVE_MIME_TYPE_FILTERS = "activeMimeTypeFilters"
+        private const val KEY_GRID_SPAN_COUNT = "gridSpanCount"
+
+        private const val DEFAULT_GRID_SPAN_COUNT = 3
 
         private const val PAYLOAD_INFO_VISIBILITY_CHANGED = "PAYLOAD_INFO_VISIBILITY_CHANGED"
         private const val PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED = "PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED"
@@ -89,6 +93,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private lateinit var loadingProgressBar: ProgressBar
     private lateinit var recyclerView: RecyclerView
+    private lateinit var gridLayoutManager: GridLayoutManager
     private lateinit var selectSourceFolderButton: Button
     private lateinit var selectDestinationFolderButton: Button
     private lateinit var adapter: ImageAdapter
@@ -124,6 +129,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private var actionMode: ActionMode? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
@@ -230,7 +236,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     progress.copiedBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
                 etaText.text =
-                    if (progress.etaSeconds >= 0) "${formatDuration(progress.etaSeconds)} remaining"
+                    if (progress.etaSeconds >= 0) "${progress.etaSeconds.formatDuration()} remaining"
                     else "Calculating..."
                 statusText.text =
                     "${progress.copiedBytes.formatBytes()}/${progress.totalBytes.formatBytes()} bytes (${
@@ -335,7 +341,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     fun updateFilterIcon() {
         menuItemMimeTypeFilter?.let {
             if (activeMimeTypeFilters.isNotEmpty()) {
-                it.setTint(this, com.google.android.material.R.attr.colorPrimary)
+                it.setTint(this, android.R.attr.colorPrimary)
             } else {
                 it.setTint(this, com.google.android.material.R.attr.colorOnSurface)
             }
@@ -430,6 +436,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 adapter.notifyItemRangeChanged(0, shownFileInfos.size, PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED)
                 return true
             }
+            R.id.action_settings_change_grid_columns -> {
+                showChangeGridColumnsDialog()
+                return true
+            }
             else -> return super.onOptionsItemSelected(item)
         }
 
@@ -441,24 +451,38 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         return true
     }
 
-    private fun formatBytes(bytes: Long): String {
-        val unit = 1024
-        if (bytes < unit) return "$bytes B"
-        val exp = (ln(bytes.toDouble()) / ln(unit.toDouble())).toInt()
-        val prefix = "KMGTPE"[exp - 1]
-        return String.format("%.1f %sB", bytes / Math.pow(unit.toDouble(), exp.toDouble()), prefix)
+    private fun showChangeGridColumnsDialog() {
+        val currentSpanCount = gridLayoutManager.spanCount
+        val options = arrayOf("2 Columns", "3 Columns", "4 Columns", "5 Columns")
+        val spanValues = intArrayOf(2, 3, 4, 5)
+
+        var selectedSpanValue = currentSpanCount
+        val currentSelectionIndex = spanValues.indexOf(currentSpanCount).takeIf { it != -1 } ?: 1
+
+        AlertDialog.Builder(this)
+            .setTitle("Select Grid Columns")
+            .setSingleChoiceItems(options, currentSelectionIndex) { _, which ->
+                selectedSpanValue = spanValues[which]
+            }
+            .setPositiveButton("Apply") { dialog, _ ->
+                if (selectedSpanValue != gridLayoutManager.spanCount) {
+                    updateGridSpanCount(selectedSpanValue)
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
-    fun formatDuration(seconds: Int): String {
-        return when {
-            seconds < 60 -> "$seconds s"
-            seconds < 3600 -> "${seconds / 60} min ${seconds % 60} s"
-            else -> {
-                val h = seconds / 3600
-                val m = (seconds % 3600) / 60
-                "$h h $m min"
-            }
+    private fun updateGridSpanCount(newSpanCount: Int) {
+        // Save the new span count
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+            putInt(KEY_GRID_SPAN_COUNT, newSpanCount)
         }
+
+        gridLayoutManager.spanCount = newSpanCount
+        recyclerView.requestLayout()
+        gridLayoutManager.initialPrefetchItemCount = gridLayoutManager.spanCount * 2
     }
 
     private fun setupSourceFolderPicker() {
@@ -556,7 +580,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     private fun setupRecyclerView() {
-        val gridLayoutManager = GridLayoutManager(this, 3) // Your existing manager
+        val savedSpanCount = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getInt(KEY_GRID_SPAN_COUNT, DEFAULT_GRID_SPAN_COUNT)
+
+        gridLayoutManager = GridLayoutManager(this, savedSpanCount) // Your existing manager
 
         // Prefetch 2 full rows of images ahead of time.
         gridLayoutManager.initialPrefetchItemCount = gridLayoutManager.spanCount * 2
@@ -779,7 +806,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 it.orientation = contentResolver.getImageOrientation(it.uri)
             }
             scope.launch(Dispatchers.Main) {
-                adapter.notifyItemRangeChanged(0, images.size)
+                adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED)
             }
         }
     }
@@ -859,10 +886,14 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         fun cancelAllPendingPreviews() {
+            if (adapter.itemCount == 0) {
+                return
+            }
+
             // iterate visible view holders and cancel (uses recyclerView from enclosing Activity)
             val lm = recyclerView.layoutManager as? GridLayoutManager ?: return
-            val first = lm.findFirstVisibleItemPosition().coerceAtLeast(0)
-            val last = lm.findLastVisibleItemPosition().coerceAtLeast(first)
+            val first = lm.findFirstVisibleItemPosition().minus(gridLayoutManager.initialPrefetchItemCount).coerceAtLeast(0)
+            val last = lm.findLastVisibleItemPosition().plus(gridLayoutManager.initialPrefetchItemCount).coerceIn(first, adapter.images.lastIndex)
             for (i in first..last) {
                 (recyclerView.findViewHolderForAdapterPosition(i) as? ViewHolder)?.cancelPendingPreview()
             }
@@ -896,7 +927,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     if (actionMode != null) {
                         toggleSelection(bindingAdapterPosition)
                     } else {
-                        showPreview(getImageInfo(bindingAdapterPosition).uri)
+                        showPreview(bindingAdapterPosition)
                     }
                 }
 
@@ -905,7 +936,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         this@MainActivity.startActionMode(this@MainActivity)
                         toggleSelection(bindingAdapterPosition)
                     } else {
-                        showPreview(getImageInfo(bindingAdapterPosition).uri)
+                        showPreview(bindingAdapterPosition)
                     }
                     true
                 }
@@ -963,8 +994,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
 
-            private fun showPreview(imageUri: Uri) {
-                val dialog = PreviewDialogFragment.newInstance(imageUri)
+            private fun showPreview(position: Int) {
+                val dialog = PreviewDialogFragment.newInstance(
+                    shownFileInfos.map(FileInfo::uri).toList(),
+                    position
+                )
                 dialog.show(this@MainActivity.supportFragmentManager, "preview")
                 this@MainActivity.supportFragmentManager.setFragmentResultListener(
                     "preview_closed",
