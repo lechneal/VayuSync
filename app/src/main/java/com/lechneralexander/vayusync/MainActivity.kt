@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -63,7 +64,6 @@ import kotlinx.coroutines.withContext
 import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.ln
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
     companion object {
@@ -129,6 +129,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     private var actionMode: ActionMode? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
@@ -340,7 +341,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     fun updateFilterIcon() {
         menuItemMimeTypeFilter?.let {
             if (activeMimeTypeFilters.isNotEmpty()) {
-                it.setTint(this, com.google.android.material.R.attr.colorPrimary)
+                it.setTint(this, android.R.attr.colorPrimary)
             } else {
                 it.setTint(this, com.google.android.material.R.attr.colorOnSurface)
             }

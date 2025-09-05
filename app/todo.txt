@@ -1,5 +1,5 @@
 Major:
-- follow suggested best practices
+- add initial walkthrough (TapTargetView?)
 - image preview
     - Allow the user to select from the preview page
 - Advanced copy features
@@ -21,7 +21,6 @@ Major:
     - about page
     - implement recommended actions by google
     - image info background and text colors
-- add initial walkthrough
 - performance improvements
     - preload other images when idle
     - move load from disk cache logic into Coil fetcher?
@@ -99,3 +98,4 @@ Done:
 - image preview
     - also allow moving to next/prev image
     - preload next/prev image
+- follow google suggested best practices

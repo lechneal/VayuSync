@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Log
 import android.util.TypedValue
 import android.view.MenuItem
+import androidx.annotation.AttrRes
 import androidx.exifinterface.media.ExifInterface
 import com.lechneralexander.vayusync.Orientation
 import java.text.SimpleDateFormat
@@ -14,7 +15,7 @@ import java.util.Date
 import kotlin.math.ln
 
 
-fun MenuItem.setTint(context: Context, resourceId: Int) {
+fun MenuItem.setTint(context: Context, @AttrRes resourceId: Int) {
     val typedValue = TypedValue()
     context.theme.resolveAttribute(resourceId, typedValue, true)
     this.setIconTintList(ColorStateList.valueOf(typedValue.data))
