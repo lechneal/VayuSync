@@ -111,19 +111,24 @@ class PreviewDialogFragment : DialogFragment() {
             videoView.setVideoURI(uri)
             videoView.visibility = View.VISIBLE
 
-            // Delay start until prepared, or add prepared listener
-            videoView.setOnPreparedListener { mp ->
-                mp.start()
-            }
-
             val mediaController = MediaController(requireContext())
             mediaController.setAnchorView(videoView)
             videoView.setMediaController(mediaController)
 
+            // Delay start until prepared, or add prepared listener
+            videoView.setOnPreparedListener { mp ->
+                mp.start()
+                mediaController.show()
+            }
+
             videoView.setOnTouchListener { _, event ->
-                // Allow MediaController to process taps, but also let our gesture detector check for flings.
-                // gestureDetector.onTouchEvent will return true if its onFling (or other listener) consumed the event.
-                gestureDetector.onTouchEvent(event)
+                val flingConsumed = gestureDetector.onTouchEvent(event)
+
+                // If it was a fling, we're done.
+                if (flingConsumed) {
+                    return@setOnTouchListener true
+                }
+                return@setOnTouchListener false
             }
         } else {
             Log.d("Preview", "Loading image: $uri, mime: $mime")

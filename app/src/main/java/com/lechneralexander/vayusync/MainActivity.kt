@@ -806,7 +806,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 it.orientation = contentResolver.getImageOrientation(it.uri)
             }
             scope.launch(Dispatchers.Main) {
-                adapter.notifyItemRangeChanged(0, images.size)
+                adapter.notifyItemRangeChanged(0, adapter.itemCount, PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED)
             }
         }
     }
@@ -886,10 +886,14 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         fun cancelAllPendingPreviews() {
+            if (adapter.itemCount == 0) {
+                return
+            }
+
             // iterate visible view holders and cancel (uses recyclerView from enclosing Activity)
             val lm = recyclerView.layoutManager as? GridLayoutManager ?: return
             val first = lm.findFirstVisibleItemPosition().minus(gridLayoutManager.initialPrefetchItemCount).coerceAtLeast(0)
-            val last = lm.findLastVisibleItemPosition().plus(gridLayoutManager.initialPrefetchItemCount).coerceIn(first, selectedItems.size)
+            val last = lm.findLastVisibleItemPosition().plus(gridLayoutManager.initialPrefetchItemCount).coerceIn(first, adapter.images.lastIndex)
             for (i in first..last) {
                 (recyclerView.findViewHolderForAdapterPosition(i) as? ViewHolder)?.cancelPendingPreview()
             }

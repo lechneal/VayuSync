@@ -1,13 +1,14 @@
 Major:
+- bugs
+    - (is this still happening?) orientation no longer shown
 - add initial walkthrough (TapTargetView?)
 - image preview
+    - abort missing previews when scrolling
     - Allow the user to select from the preview page
 - Advanced copy features
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
     - [huge] Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
-- bugs
-    - (is this still happening?) orientation no longer shown
 - improve design
     - show loading spinner on thumbnail while high res is loading (as raw is taking long)
     - show loading spinner on full preview until full image is loaded
