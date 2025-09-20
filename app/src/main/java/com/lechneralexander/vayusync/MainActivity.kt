@@ -1,5 +1,6 @@
 package com.lechneralexander.vayusync
 
+import SelectionViewModel
 import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
@@ -25,12 +26,14 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.lifecycle.Observer
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
@@ -127,6 +130,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     // To manage the contextual action mode
     private var actionMode: ActionMode? = null
+
+    // Added for selection history
+    private val selectionViewModel: SelectionViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -257,6 +263,20 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
         }
+
+        // Restore action mode if historic selections are found
+        if (selectionViewModel.isSelectionActive()) {
+            startActionModeForFileSelection()
+        }
+        // Observe Selection ViewModel changes
+        selectionViewModel.currentlySelectedUris.observe(this, Observer { selectedUriStrings ->
+            val selectedUris = selectedUriStrings.map { it.toUri() }
+            adapter.setSelectedUris(selectedUris) // Update your adapter
+        })
+    }
+
+    private fun startActionModeForFileSelection() {
+        this@MainActivity.startActionMode(this@MainActivity)
     }
 
     private fun refreshCopyStatus() {
@@ -590,7 +610,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         recyclerView = findViewById(R.id.recyclerView)
         recyclerView.layoutManager = gridLayoutManager // Use the modified manager
-        adapter = ImageAdapter(shownFileInfos)
+        adapter = ImageAdapter(shownFileInfos, selectionViewModel::recordSelectionChange) // Pass the callback
         recyclerView.adapter = adapter
 
         setupFastScroller()
@@ -767,6 +787,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             .sortedWith(getImageSorter())
         )
 
+        adapter.setSelectedUris(selectionViewModel.getCurrentlySelectedUris())
         adapter.notifyDataSetChanged()
         updateFilterIcon()
     }
@@ -817,14 +838,33 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         scope.cancel()
     }
 
-    // --- Adapter now takes a list of Uris ---
-    inner class ImageAdapter(private val images: List<FileInfo>) :
-        RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
+    inner class ImageAdapter(
+        private val images: List<FileInfo>,
+        private val recordSelectionChange: (Set<Uri>) -> Unit
+    ) : RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
         private val selectedItems = mutableListOf<FileInfo>()
 
         fun getSelectedCount() = selectedItems.size
         fun getSelectedItems(): List<FileInfo> = selectedItems.toList()
+        fun getSelectedUris(): Set<Uri> = selectedItems.map { it.uri }.toSet()
+
+        // Added method to set selection from history
+        fun setSelectedUris(itemsToSelect: Collection<Uri>) {
+            val oldSelection = selectedItems.toList()
+            selectedItems.clear()
+            selectedItems.addAll(images.filter { itemsToSelect.contains(it.uri) })
+
+            val allAffectedUris = oldSelection.map { it.uri } + selectedItems.map { it.uri }
+            allAffectedUris.forEach { uriToNotify ->
+                val index = images.indexOfFirst { it.uri == uriToNotify }
+                if (index != -1) {
+                    notifyItemChanged(index)
+                }
+            }
+            actionMode?.invalidate()
+        }
+
 
         fun getImageInfo(position: Int): FileInfo {
             return images[position]
@@ -839,22 +879,29 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
             notifyItemChanged(position)
             actionMode?.invalidate() // Re-runs onPrepareActionMode to update title
+            recordSelectionChange(getSelectedUris()) // Notify MainActivity
         }
 
         fun clearSelections() {
-            val previouslySelected = selectedItems.toList()
+            if (selectedItems.isEmpty()) return // No change, no need to record or notify
+
+            val previouslySelectedIndexes = selectedItems.mapNotNull { images.indexOf(it) }
             selectedItems.clear()
-            previouslySelected.forEach { uri ->
-                val index = images.indexOf(uri)
-                if (index != -1) notifyItemChanged(index)
+            previouslySelectedIndexes.forEach { index ->
+                 if (index != -1) notifyItemChanged(index)
             }
+            actionMode?.invalidate()
+            recordSelectionChange(getSelectedUris()) // Notify MainActivity
         }
 
         fun selectAll() {
+            if (selectedItems.size == images.size) return // All already selected
+
             selectedItems.clear()
-            images.forEach { selectedItems.add(it) }
+            selectedItems.addAll(images)
             notifyItemRangeChanged(0, images.size)
             actionMode?.invalidate()
+            recordSelectionChange(getSelectedUris()) // Notify MainActivity
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -887,7 +934,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         fun cancelAllPendingPreviews() {
-            if (adapter.itemCount == 0) {
+            if (itemCount == 0) {
                 return
             }
 
@@ -905,8 +952,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             val first = lm.findFirstVisibleItemPosition().coerceAtLeast(0)
             val last = lm.findLastVisibleItemPosition().coerceAtLeast(first)
             for (pos in first..last) {
-                val holder = recyclerView.findViewHolderForAdapterPosition(pos) as? ViewHolder ?: continue
-                onBindViewHolder(holder, pos)
+                if (pos < images.size) { // Ensure index is within bounds
+                    val holder = recyclerView.findViewHolderForAdapterPosition(pos) as? ViewHolder ?: continue
+                    onBindViewHolder(holder, pos)
+                }
             }
         }
 
@@ -934,7 +983,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
                 itemView.setOnLongClickListener {
                     if (actionMode == null) {
-                        this@MainActivity.startActionMode(this@MainActivity)
+                        startActionModeForFileSelection()
                         toggleSelection(bindingAdapterPosition)
                     } else {
                         showPreview(bindingAdapterPosition)
@@ -1164,11 +1213,25 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean {
         updateActionModeTitle()
+        updateHistoryNavigationButtons(menu)
         return true
+    }
+
+    private fun updateHistoryNavigationButtons(menu: Menu?) {
+        menu?.findItem(R.id.action_undo)?.isEnabled = selectionViewModel.canUndo()
+        menu?.findItem(R.id.action_redo)?.isEnabled = selectionViewModel.canRedo()
     }
 
     override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
         when (item?.itemId) {
+            R.id.action_undo -> {
+                selectionViewModel.undoSelection()
+                true
+            }
+            R.id.action_redo -> {
+                selectionViewModel.redoSelection()
+                true
+            }
             R.id.action_copy -> {
                 val destinationFolder = getSavedDestinationFolder()
                 if (destinationFolder != null) {

@@ -1,6 +1,5 @@
 Major:
 - Advanced copy features
-    - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
     - [huge] Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
 - image preview
@@ -10,18 +9,17 @@ Major:
 - features
     - orientation: optimize it, only load if checkbox is active, do only load on demand (and cancel job), do not load for videos
 - improve design
+    - hide source/destination after setting? Move to menu?
+    - different button color or text if folder not selected
+    - add icons to buttons
     - show loading spinner on thumbnail while high res is loading (as raw is taking long)
     - show loading spinner on full preview until full image is loaded
     - rethink EXIF data (only show some, on click show next?)
     - different icon for already copied (e.g. save icon)
-    - hide source/destination after setting?
-    - add icons to buttons
-    - different button color or text if folder not selected
     - use icon as loading spinner
     - lighter placeholder images / reuse icon?
     - about page
-    - implement recommended actions by google
-    - image info background and text colors
+    - streamline image info background and text colors
 - performance improvements
     - preload other images when idle
     - move load from disk cache logic into Coil fetcher?
@@ -106,3 +104,5 @@ Done:
 - follow google suggested best practices
 - features
     - video navigation: if clicking prev/next load prev/next file
+- Advanced copy features
+    - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection

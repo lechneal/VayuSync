@@ -55,6 +55,7 @@ dependencies {
     implementation(libs.photoview)
     implementation(libs.androidx.exifinterface)
     implementation(libs.library)
+    implementation(libs.gson)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
