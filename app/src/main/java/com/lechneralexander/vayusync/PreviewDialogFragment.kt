@@ -26,6 +26,8 @@ import com.lechneralexander.vayusync.cache.CacheHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.DecimalFormat
+import kotlin.math.roundToInt
 
 class PreviewDialogFragment : DialogFragment() {
     private var currentPosition: Int = 0
@@ -314,43 +316,102 @@ class PreviewDialogFragment : DialogFragment() {
                 val exif = ExifInterface(inputStream)
                 val stringBuilder = StringBuilder()
 
-                exif.getAttribute(ExifInterface.TAG_MAKE)?.takeIf { it.isNotEmpty() }?.let {
-                    stringBuilder.append("Make: $it\n")
+                // Device Info (Make and Model)
+                val make = exif.getAttribute(ExifInterface.TAG_MAKE)?.trim()
+                val model = exif.getAttribute(ExifInterface.TAG_MODEL)?.trim()
+                if (!make.isNullOrEmpty() && !model.isNullOrEmpty()) {
+                    if (model.startsWith(make, ignoreCase = true)) {
+                        stringBuilder.append(model).append("\n")
+                    } else {
+                        stringBuilder.append("$make $model\n")
+                    }
+                } else if (!make.isNullOrEmpty()) {
+                    stringBuilder.append(make).append("\n")
+                } else if (!model.isNullOrEmpty()) {
+                    stringBuilder.append(model).append("\n")
                 }
-                exif.getAttribute(ExifInterface.TAG_MODEL)?.takeIf { it.isNotEmpty() }?.let {
-                    stringBuilder.append("Model: $it\n")
+
+                val lensMake = exif.getAttribute(ExifInterface.TAG_LENS_MAKE)?.trim()
+                val lensModel = exif.getAttribute(ExifInterface.TAG_LENS_MODEL)?.trim()
+                if (!lensMake.isNullOrEmpty() && !lensModel.isNullOrEmpty()) {
+                     if (lensModel.startsWith(lensMake, ignoreCase = true)) {
+                        stringBuilder.appendLine(lensModel)
+                    } else {
+                        stringBuilder.appendLine("$lensMake $lensModel")
+                    }
+                } else if (!lensMake.isNullOrEmpty()) {
+                    stringBuilder.appendLine(lensMake)
+                } else if (!lensModel.isNullOrEmpty()) {
+                    stringBuilder.appendLine(lensModel)
                 }
-                exif.getAttribute(ExifInterface.TAG_DATETIME)?.takeIf { it.isNotEmpty() }?.let {
-                    stringBuilder.append("Date/Time: $it\n")
+
+                val focalLengthActualString = exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)
+                    ?.split("/")
+                    ?.mapNotNull { it.toDoubleOrNull() }
+                    ?.let { if (it.size == 2 && it[1] != 0.0) it[0] / it[1] else it.firstOrNull() }
+                    ?.let { "${it.toInt()}mm" }
+
+                val focalLengthEquivalentString = exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM)
+                    ?.takeIf { it.isNotEmpty() && it != "0" }
+                    ?.let {  "(${it}mm in 35mm equiv.)" }
+
+                if (focalLengthActualString != null && focalLengthEquivalentString != null) {
+                    stringBuilder.appendLine("$focalLengthActualString $focalLengthEquivalentString")
+                } else if (focalLengthActualString != null) {
+                    stringBuilder.appendLine(focalLengthActualString)
                 }
-                exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)?.takeIf { it.isNotEmpty() }?.let {
-                    stringBuilder.append("Focal Length: $it\n")
+
+                // Other camera Settings ( Aperture, Exposure, ISO)
+                val cameraSettings = mutableListOf<String>()
+                exif.getAttribute(ExifInterface.TAG_F_NUMBER)?.takeIf { it.isNotEmpty() }?.let {
+                    cameraSettings.add("f/$it")
+                }
+
+                exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)?.toDoubleOrNull()?.let {
+                    val exposureTime = it
+                    if (exposureTime < 1.0) {
+                        val denominator = (1.0 / exposureTime).roundToInt()
+                        if (denominator > 0) { // Avoid 1/0s if exposureTime is extremely small but not zero
+                           cameraSettings.add("1/${denominator}s")
+                        } else {
+                           cameraSettings.add("${DecimalFormat("0.####").format(exposureTime)}s") // Fallback for very small values
+                        }
+                    } else {
+                        cameraSettings.add("${DecimalFormat("0.#").format(exposureTime)}s")
+                    }
                 }
                 exif.getAttribute(ExifInterface.TAG_ISO_SPEED)?.takeIf { it.isNotEmpty() }?.let {
-                    stringBuilder.append("ISO: $it\n")
+                    cameraSettings.add("ISO $it")
                 }
-                exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)?.takeIf { it.isNotEmpty() }?.let {
-                    stringBuilder.append("Exposure Time: $it\n")
+
+                if (cameraSettings.isNotEmpty()) {
+                    stringBuilder.append(cameraSettings.joinToString(" | ")).append("\n")
                 }
+
+                // Image Attributes (Dimensions and Size)
+                val imageAttributes = mutableListOf<String>()
                 val width = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, -1)
-                if (width != -1) {
-                    stringBuilder.append("Width: $width px\n")
-                }
                 val height = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, -1)
-                if (height != -1) {
-                    stringBuilder.append("Height: $height px\n")
+                if (width != -1 && height != -1) {
+                    imageAttributes.add("${width}x${height}px")
                 }
                 context?.contentResolver?.openAssetFileDescriptor(uri, "r")?.use { afd ->
                     val sizeBytes = afd.length
                     if (sizeBytes != -1L) {
-                        stringBuilder.append("Size: ${android.text.format.Formatter.formatFileSize(context, sizeBytes)}\n")
+                        imageAttributes.add(android.text.format.Formatter.formatFileSize(context, sizeBytes))
                     }
                 }
-                exif.getAttribute(ExifInterface.TAG_LENS_MAKE)?.takeIf { it.isNotEmpty() }?.let {
-                    stringBuilder.append("Lens Make: $it\n")
+                if (imageAttributes.isNotEmpty()) {
+                    stringBuilder.append(imageAttributes.joinToString(" | ")).append("\n")
                 }
-                exif.getAttribute(ExifInterface.TAG_F_NUMBER)?.takeIf { it.isNotEmpty() }?.let {
-                    stringBuilder.append("Aperture: f/$it\n")
+
+                // Date/Time
+                val dateTimeOriginal = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                val dateTimeDigitized = exif.getAttribute(ExifInterface.TAG_DATETIME_DIGITIZED)
+                val dateTime = exif.getAttribute(ExifInterface.TAG_DATETIME)
+
+                (dateTimeOriginal ?: dateTimeDigitized ?: dateTime)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append(it).append("\n")
                 }
 
                 if (stringBuilder.isEmpty()) {

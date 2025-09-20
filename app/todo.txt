@@ -1,17 +1,15 @@
 Major:
-- add initial walkthrough (TapTargetView?)
-- features
-    - orientation: optimize it, only load if checkbox is active, do only load on demand (and cancel job), do not load for videos
-    - video navigation: if clicking prev/next load prev/next file
-- image preview
-    - Allow the user to select from the preview page
-    - store in disk cache after full image / prev/next is loaded
 - Advanced copy features
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
     - [huge] Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
+- image preview
+    - Allow the user to select from the preview page
+    - store in disk cache after full image / prev/next is loaded
+- add initial walkthrough (TapTargetView?)
+- features
+    - orientation: optimize it, only load if checkbox is active, do only load on demand (and cancel job), do not load for videos
 - improve design
-    - clean EXIF data: only show the most relevant, show formatted
     - show loading spinner on thumbnail while high res is loading (as raw is taking long)
     - show loading spinner on full preview until full image is loaded
     - rethink EXIF data (only show some, on click show next?)
@@ -90,6 +88,7 @@ Done:
 - design
     - consistent material color usage
     - revisit media icons: border instead of background?
+    - clean EXIF data: only show the most relevant, show formatted
 - performance improvements
     - skip writing to cache if file already exists
     - debounce loading higher res preview
@@ -105,3 +104,5 @@ Done:
     - preload next/prev image
     - abort missing previews when scrolling
 - follow google suggested best practices
+- features
+    - video navigation: if clicking prev/next load prev/next file
