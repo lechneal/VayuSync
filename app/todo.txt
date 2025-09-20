@@ -4,7 +4,6 @@ Major:
     - orientation: optimize it, only load if checkbox is active, do only load on demand (and cancel job), do not load for videos
     - video navigation: if clicking prev/next load prev/next file
 - image preview
-    - abort missing previews when scrolling
     - Allow the user to select from the preview page
     - store in disk cache after full image / prev/next is loaded
 - Advanced copy features
@@ -12,6 +11,7 @@ Major:
     - [huge] Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
 - improve design
+    - clean EXIF data: only show the most relevant, show formatted
     - show loading spinner on thumbnail while high res is loading (as raw is taking long)
     - show loading spinner on full preview until full image is loaded
     - rethink EXIF data (only show some, on click show next?)
@@ -103,4 +103,5 @@ Done:
 - image preview
     - also allow moving to next/prev image
     - preload next/prev image
+    - abort missing previews when scrolling
 - follow google suggested best practices

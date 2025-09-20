@@ -18,6 +18,7 @@ import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.lifecycleScope
 import coil.ImageLoader
 import coil.load
+import coil.request.Disposable
 import coil.request.ImageRequest
 import com.github.chrisbanes.photoview.OnSingleFlingListener
 import com.github.chrisbanes.photoview.PhotoView
@@ -30,6 +31,7 @@ class PreviewDialogFragment : DialogFragment() {
     private var currentPosition: Int = 0
     private lateinit var imageUris: List<Uri>
     private lateinit var gestureDetector: GestureDetector // For VideoView gestures
+    private val preloadDisposables = mutableListOf<Disposable>() // Added for preloading
 
     companion object {
         private const val SWIPE_THRESHOLD_VELOCITY = 200
@@ -88,9 +90,23 @@ class PreviewDialogFragment : DialogFragment() {
         view.setOnClickListener { dismiss() }
     }
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        cancelPreloadTasks()
+    }
+
+    private fun cancelPreloadTasks() {
+        preloadDisposables.forEach { it.dispose() }
+        preloadDisposables.clear()
+        Log.d("Preview", "Cancelled all preload tasks.")
+    }
+
     private fun loadFile(uri: Uri) {
         val context = context ?: return
         val currentView = view ?: return
+
+        // Cancel any ongoing preload tasks before loading new file
+        cancelPreloadTasks()
 
         val mime = context.contentResolver.getType(uri)
         val imageView = currentView.findViewById<PhotoView>(R.id.fullImageView)
@@ -177,7 +193,8 @@ class PreviewDialogFragment : DialogFragment() {
                         .data(prevUri)
                         .memoryCacheKey(CacheHelper.getFullViewCacheKey(prevUri))
                         .build()
-                    getImageLoader().enqueue(request)
+                    val disposable = getImageLoader().enqueue(request)
+                    preloadDisposables.add(disposable) // Store disposable
                     Log.d("Preview", "Enqueued preloading for previous image at index $prevIndex: $prevUri")
                 }
             }
@@ -195,13 +212,11 @@ class PreviewDialogFragment : DialogFragment() {
                         .memoryCacheKey(CacheHelper.getFullViewCacheKey(nextUri))
                         // Optional: Add other Coil configurations like diskCachePolicy if needed
                         .build()
-                    getImageLoader().enqueue(request)
+                    val disposable = getImageLoader().enqueue(request)
+                    preloadDisposables.add(disposable) // Store disposable
                     Log.d("Preview", "Enqueued preloading for next image at index $nextIndex: $nextUri")
                 } else {
                     Log.d("Preview", "Skipping preload for next item at index $nextIndex (not an image): $nextUri")
-                    // Optionally, if you hit a non-image, you might break or continue
-                    // depending on whether you expect images to be contiguous.
-                    // For now, it continues to check up to MAX_IMAGES_TO_PRELOAD_PER_DIRECTION.
                 }
             } else {
                 break // No more images in this direction
@@ -297,44 +312,56 @@ class PreviewDialogFragment : DialogFragment() {
         try {
             requireContext().contentResolver.openInputStream(uri)?.use { inputStream ->
                 val exif = ExifInterface(inputStream)
-                val make = exif.getAttribute(ExifInterface.TAG_MAKE)
-                val model = exif.getAttribute(ExifInterface.TAG_MODEL)
-                val datetime = exif.getAttribute(ExifInterface.TAG_DATETIME)
-                val focalLength = exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)
-                val iso = exif.getAttribute(ExifInterface.TAG_ISO_SPEED)
-                val exposureTime = exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)
-                val width = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, -1)
-                val height = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, -1)
-                val sizeBytes = context?.contentResolver?.openAssetFileDescriptor(uri, "r")?.use { afd ->
-                    afd.length
-                } ?: -1L
-                val lensMake = exif.getAttribute(ExifInterface.TAG_LENS_MAKE)
-                val aperture = exif.getAttribute(ExifInterface.TAG_F_NUMBER)
-                val shutterSpeed = exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)
+                val stringBuilder = StringBuilder()
 
-                val exifInfo = buildString {
-                    listOfNotNull(
-                        if (make != null || model != null) "Camera: $make $model" else null,
-                        focalLength?.let { "Focal Length: $it" },
-                        iso?.let { "ISO: $it" },
-                        exposureTime?.let { "Exposure: $it s" },
-                        datetime?.let { "Taken: $it" },
-                        if (width > 0 && height > 0) "Resolution: ${width}x${height}" else null,
-                        if (sizeBytes > 0) "File size: ${sizeBytes / 1024} KB" else null,
-                        lensMake?.let { "Lens make: $it" },
-                        aperture?.let { "Aperture: f/$it" },
-                        shutterSpeed?.let { "Shutter speed: $it s" }
-                    ).forEach { appendLine(it) }
+                exif.getAttribute(ExifInterface.TAG_MAKE)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append("Make: $it\n")
                 }
-                if (exifInfo.isNotEmpty()) {
-                    return@withContext exifInfo
+                exif.getAttribute(ExifInterface.TAG_MODEL)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append("Model: $it\n")
                 }
+                exif.getAttribute(ExifInterface.TAG_DATETIME)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append("Date/Time: $it\n")
+                }
+                exif.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append("Focal Length: $it\n")
+                }
+                exif.getAttribute(ExifInterface.TAG_ISO_SPEED)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append("ISO: $it\n")
+                }
+                exif.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append("Exposure Time: $it\n")
+                }
+                val width = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, -1)
+                if (width != -1) {
+                    stringBuilder.append("Width: $width px\n")
+                }
+                val height = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, -1)
+                if (height != -1) {
+                    stringBuilder.append("Height: $height px\n")
+                }
+                context?.contentResolver?.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                    val sizeBytes = afd.length
+                    if (sizeBytes != -1L) {
+                        stringBuilder.append("Size: ${android.text.format.Formatter.formatFileSize(context, sizeBytes)}\n")
+                    }
+                }
+                exif.getAttribute(ExifInterface.TAG_LENS_MAKE)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append("Lens Make: $it\n")
+                }
+                exif.getAttribute(ExifInterface.TAG_F_NUMBER)?.takeIf { it.isNotEmpty() }?.let {
+                    stringBuilder.append("Aperture: f/$it\n")
+                }
+
+                if (stringBuilder.isEmpty()) {
+                    return@use null // No EXIF data found or all fields were empty
+                }
+                return@use stringBuilder.toString().trim()
             }
         } catch (e: Exception) {
-            Log.e("PreviewDialogFragment", "Error loading EXIF for $uri", e)
-            return@withContext "Error loading EXIF"
+            Log.e("PreviewDialogFragment", "Error reading EXIF data for $uri", e)
+            null
         }
-        return@withContext null
     }
 
     override fun onStart() {
