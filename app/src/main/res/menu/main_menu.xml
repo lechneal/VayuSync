@@ -65,6 +65,7 @@
         android:id="@+id/action_toggle_media_type_icon"
         android:checkable="true"
         android:title="Show Orientation/Type Icon"
+        android:visible="false"
         app:showAsAction="never" />
 
     <item

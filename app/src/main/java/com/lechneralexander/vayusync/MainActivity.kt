@@ -753,7 +753,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             // Kick off EXIF parsing in background
-            lazyLoadExifOrientation(allFileInfos)
+            // FIXME: find better solution, current one slows down preview loading
+            //lazyLoadExifOrientation(allFileInfos)
         }
     }
 

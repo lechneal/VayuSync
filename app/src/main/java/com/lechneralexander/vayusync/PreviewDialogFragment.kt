@@ -113,12 +113,13 @@ class PreviewDialogFragment : DialogFragment() {
 
             val mediaController = MediaController(requireContext())
             mediaController.setAnchorView(videoView)
+            mediaController.setPrevNextListeners({navigateToNextImage()}, {navigateToPreviousImage()})
             videoView.setMediaController(mediaController)
 
             // Delay start until prepared, or add prepared listener
             videoView.setOnPreparedListener { mp ->
                 mp.start()
-                mediaController.show()
+                mediaController.show(0)
             }
 
             videoView.setOnTouchListener { _, event ->
@@ -140,7 +141,7 @@ class PreviewDialogFragment : DialogFragment() {
                 crossfade(true)
                 listener(
                     onSuccess = { _, _ ->
-                        preloadAdjacentImages(currentPosition, 3)
+                        preloadAdjacentImages(currentPosition, 3, 1)
                     },
                     onError = { _, result ->
                         Log.e("Preview", "Error loading image $uri: ${result.throwable}")
@@ -163,11 +164,11 @@ class PreviewDialogFragment : DialogFragment() {
     private fun getImageLoader(): ImageLoader =
         (requireContext().applicationContext as VayuApp).getImageLoader()
 
-    private fun preloadAdjacentImages(currentIndex: Int, count: Int) {
+    private fun preloadAdjacentImages(currentIndex: Int, countPre: Int, countPost: Int) {
         val context = context ?: return
 
         // Preload previous images
-        for (i in 1..count) {
+        for (i in 1..countPre) {
             val prevIndex = currentIndex - i
             if (prevIndex >= 0) {
                 val prevUri = imageUris[prevIndex]
@@ -183,7 +184,7 @@ class PreviewDialogFragment : DialogFragment() {
         }
 
         // Preload next images
-        for (i in 1..count) {
+        for (i in 1..countPost) {
             val nextIndex = currentIndex + i
             if (nextIndex < imageUris.size) {
                 val nextUri = imageUris[nextIndex]
