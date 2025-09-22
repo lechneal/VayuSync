@@ -85,6 +85,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         private const val PAYLOAD_INFO_VISIBILITY_CHANGED = "PAYLOAD_INFO_VISIBILITY_CHANGED"
         private const val PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED = "PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED"
+        //TODO PAYLOAD for selection
 
         private const val MIME_TYPE_MENU_ITEM_GROUP_ID = 1001 // Unique group ID
         private const val MIME_TYPE_MENU_ITEM_ID_OFFSET = 10000 // Start IDs for MIME types
@@ -264,19 +265,22 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
         }
 
-        // Restore action mode if historic selections are found
-        if (selectionViewModel.isSelectionActive()) {
-            startActionModeForFileSelection()
-        }
         // Observe Selection ViewModel changes
         selectionViewModel.currentlySelectedUris.observe(this, Observer { selectedUriStrings ->
             val selectedUris = selectedUriStrings.map { it.toUri() }
             adapter.setSelectedUris(selectedUris) // Update your adapter
+            actionMode?.invalidate()
+
+            if (selectedUris.isNotEmpty()) {
+                startActionModeForFileSelection()
+            }
         })
     }
 
     private fun startActionModeForFileSelection() {
-        this@MainActivity.startActionMode(this@MainActivity)
+        if (actionMode == null) {
+            this@MainActivity.startActionMode(this@MainActivity)
+        }
     }
 
     private fun refreshCopyStatus() {
@@ -610,7 +614,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         recyclerView = findViewById(R.id.recyclerView)
         recyclerView.layoutManager = gridLayoutManager // Use the modified manager
-        adapter = ImageAdapter(shownFileInfos, selectionViewModel::recordSelectionChange) // Pass the callback
+        adapter = ImageAdapter(shownFileInfos) // Pass the callback
         recyclerView.adapter = adapter
 
         setupFastScroller()
@@ -839,8 +843,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     inner class ImageAdapter(
-        private val images: List<FileInfo>,
-        private val recordSelectionChange: (Set<Uri>) -> Unit
+        private val images: List<FileInfo>
     ) : RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
         private val selectedItems = mutableListOf<FileInfo>()
@@ -862,7 +865,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     notifyItemChanged(index)
                 }
             }
-            actionMode?.invalidate()
         }
 
 
@@ -871,15 +873,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         fun toggleSelection(position: Int) {
-            val imageInfo = getImageInfo(position)
-            if (selectedItems.contains(imageInfo)) {
-                selectedItems.remove(imageInfo)
-            } else {
-                selectedItems.add(imageInfo)
-            }
+            selectionViewModel.toggleAndRecordSelection(getImageInfo(position).uri)
             notifyItemChanged(position)
-            actionMode?.invalidate() // Re-runs onPrepareActionMode to update title
-            recordSelectionChange(getSelectedUris()) // Notify MainActivity
         }
 
         fun clearSelections() {
@@ -890,8 +885,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             previouslySelectedIndexes.forEach { index ->
                  if (index != -1) notifyItemChanged(index)
             }
-            actionMode?.invalidate()
-            recordSelectionChange(getSelectedUris()) // Notify MainActivity
+            selectionViewModel.recordSelectionChange(getSelectedUris()) // Notify MainActivity
         }
 
         fun selectAll() {
@@ -900,8 +894,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             selectedItems.clear()
             selectedItems.addAll(images)
             notifyItemRangeChanged(0, images.size)
-            actionMode?.invalidate()
-            recordSelectionChange(getSelectedUris()) // Notify MainActivity
+            selectionViewModel.recordSelectionChange(getSelectedUris()) // Notify MainActivity
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {

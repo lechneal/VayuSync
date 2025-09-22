@@ -2,11 +2,16 @@ Major:
 - Advanced copy features
     - [huge] Copy while app in background = add foreground service + android notification
     - Store state for crash, and pickup upon restart
-- image preview
-    - Allow the user to select from the preview page
+- google suggestions
+    - enable app optimisation https://developer.android.com/topic/performance/app-optimization/enable-app-optimization#decode-stack-trace
+- image preview.
+    - show copying/copied information on preview fragment
+    - get rid of flicker when using selection history (caused by loadImageFromDiskCacheIfAvailable, maybe because of IO thread?)
     - store in disk cache after full image / prev/next is loaded
 - add initial walkthrough (TapTargetView?)
 - features
+    - hide forward/backward selection button, if deactivated
+    - add clear selection history button in settings
     - orientation: optimize it, only load if checkbox is active, do only load on demand (and cancel job), do not load for videos
 - improve design
     - hide source/destination after setting? Move to menu?
@@ -98,6 +103,7 @@ Done:
     - fix selection order, copy in the order of items being selected
     - when clicking on video prev/next load prev/next file
 - image preview
+    - Allow the user to select from the preview page.
     - also allow moving to next/prev image
     - preload next/prev image
     - abort missing previews when scrolling

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_height="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:padding="4dp"
-    >
+    android:layout_height="match_parent"
+    android:padding="4dp">
 
     <com.github.chrisbanes.photoview.PhotoView
         android:id="@+id/fullImageView"
@@ -19,13 +19,30 @@
         android:layout_gravity="center"
         android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/fullExifInfo"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="@android:color/white"
-        android:background="#80000000"
-        android:textSize="14sp"
-        android:padding="8dp"
-        android:layout_gravity="bottom" />
+        android:layout_gravity="bottom"
+        >
+
+        <TextView
+            android:id="@+id/fullExifInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#80000000"
+            android:padding="8dp"
+            android:textColor="@android:color/white"
+            android:textSize="14sp" />
+
+        <ImageView
+            android:id="@+id/previewSelectionBadge"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="8dp"
+            android:background="@drawable/badge_background"
+            android:src="@drawable/ic_check_circle"
+            android:visibility="gone"
+            app:tint="?attr/colorOnPrimary" />
+    </FrameLayout>
 </FrameLayout>

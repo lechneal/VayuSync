@@ -160,4 +160,15 @@ class SelectionViewModel(application: Application) : AndroidViewModel(applicatio
     fun getCurrentlySelectedUris(): Collection<Uri> {
         return _currentlySelectedUris.value?.map { it.toUri() } ?: emptySet()
     }
+
+    fun toggleAndRecordSelection(currentUri: Uri) {
+        val currentSelectedSet = getCurrentlySelectedUris().toMutableSet()
+
+        if (currentSelectedSet.contains(currentUri)) {
+            currentSelectedSet.remove(currentUri)
+        } else {
+            currentSelectedSet.add(currentUri)
+        }
+        recordSelectionChange(currentSelectedSet)
+    }
 }

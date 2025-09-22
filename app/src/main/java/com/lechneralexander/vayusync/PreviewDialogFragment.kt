@@ -1,5 +1,6 @@
 package com.lechneralexander.vayusync
 
+import SelectionViewModel
 import android.app.Dialog
 import android.content.DialogInterface
 import android.net.Uri
@@ -10,11 +11,13 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.MediaController
 import android.widget.TextView
 import android.widget.VideoView
 import androidx.exifinterface.media.ExifInterface
 import androidx.fragment.app.DialogFragment
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import coil.ImageLoader
 import coil.load
@@ -33,7 +36,11 @@ class PreviewDialogFragment : DialogFragment() {
     private var currentPosition: Int = 0
     private lateinit var imageUris: List<Uri>
     private lateinit var gestureDetector: GestureDetector // For VideoView gestures
-    private val preloadDisposables = mutableListOf<Disposable>() // Added for preloading
+    private val preloadDisposables = mutableListOf<Disposable>()
+
+    private lateinit var selectionViewModel: SelectionViewModel
+
+    private lateinit var previewSelectionBadge: ImageView
 
     companion object {
         private const val SWIPE_THRESHOLD_VELOCITY = 200
@@ -64,7 +71,9 @@ class PreviewDialogFragment : DialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // get arguments
+        selectionViewModel = ViewModelProvider(requireActivity()).get(SelectionViewModel::class.java)
+        previewSelectionBadge = view.findViewById(R.id.previewSelectionBadge)
+
         val allUrisArg = arguments?.getParcelableArrayList("uris", Uri::class.java)
         val currentPositionArg = arguments?.getInt("position", 0) ?: 0
         if (allUrisArg == null || allUrisArg.isEmpty()) {
@@ -88,13 +97,48 @@ class PreviewDialogFragment : DialogFragment() {
         // Load the initial image/video
         loadFile(imageUris[currentPosition])
 
+        // Set OnClickListener for the badge
+        previewSelectionBadge.setOnClickListener {
+            toggleSelection()
+        }
+
+        // Observe selection changes
+        selectionViewModel.currentlySelectedUris.observe(viewLifecycleOwner) {
+            updateSelection()
+        }
+
         // Fallback dismiss listener for the background
         view.setOnClickListener { dismiss() }
     }
 
+    private fun toggleSelection() {
+        val currentUri = imageUris[currentPosition]
+        selectionViewModel.toggleAndRecordSelection(currentUri)
+    }
+
+    private fun updateSelection() {
+        val currentUri = imageUris[currentPosition]
+        val isSelected = selectionViewModel.getCurrentlySelectedUris().contains(currentUri)
+        when {
+            isSelected -> {
+                previewSelectionBadge.setImageResource(R.drawable.ic_check_circle)
+                previewSelectionBadge.visibility = View.VISIBLE
+                previewSelectionBadge.alpha = 1f
+            }
+            //TODO show copied info
+            else -> {
+                previewSelectionBadge.setImageResource(R.drawable.ic_check_empty)
+                previewSelectionBadge.visibility = View.VISIBLE
+                previewSelectionBadge.alpha = 1f
+            }
+        }
+    }
+
+
     override fun onDestroyView() {
         super.onDestroyView()
         cancelPreloadTasks()
+        parentFragmentManager.setFragmentResult("preview_closed", Bundle.EMPTY)
     }
 
     private fun cancelPreloadTasks() {
@@ -172,9 +216,12 @@ class PreviewDialogFragment : DialogFragment() {
             imageView.setOnSingleFlingListener(createOnSingleFlingListener(imageView, this::navigateToPreviousImage, this::navigateToNextImage))
         }
 
+        // Update selection badge when file loads
+        updateSelection()
+
         // Load EXIF info asynchronously
         lifecycleScope.launch {
-            val exifInfoString = loadExifInfo(uri) // New async function
+            val exifInfoString = loadExifInfo(uri)
             exifView.text = exifInfoString ?: "No EXIF information!"
         }
     }
@@ -196,7 +243,7 @@ class PreviewDialogFragment : DialogFragment() {
                         .memoryCacheKey(CacheHelper.getFullViewCacheKey(prevUri))
                         .build()
                     val disposable = getImageLoader().enqueue(request)
-                    preloadDisposables.add(disposable) // Store disposable
+                    preloadDisposables.add(disposable)
                     Log.d("Preview", "Enqueued preloading for previous image at index $prevIndex: $prevUri")
                 }
             }
@@ -207,25 +254,22 @@ class PreviewDialogFragment : DialogFragment() {
             val nextIndex = currentIndex + i
             if (nextIndex < imageUris.size) {
                 val nextUri = imageUris[nextIndex]
-                // Check if it's an image file before attempting to preload
                 if (context.contentResolver.getType(nextUri)?.startsWith("image/") == true) {
                     val request = ImageRequest.Builder(context)
                         .data(nextUri)
                         .memoryCacheKey(CacheHelper.getFullViewCacheKey(nextUri))
-                        // Optional: Add other Coil configurations like diskCachePolicy if needed
                         .build()
                     val disposable = getImageLoader().enqueue(request)
-                    preloadDisposables.add(disposable) // Store disposable
+                    preloadDisposables.add(disposable)
                     Log.d("Preview", "Enqueued preloading for next image at index $nextIndex: $nextUri")
                 } else {
                     Log.d("Preview", "Skipping preload for next item at index $nextIndex (not an image): $nextUri")
                 }
             } else {
-                break // No more images in this direction
+                break
             }
         }
     }
-
 
     private fun createOnVideoFlingListener(
         onLeft: () -> Unit,
@@ -272,10 +316,8 @@ class PreviewDialogFragment : DialogFragment() {
         ): Boolean {
             // Only allow swipe if not zoomed
             if (imageView.scale <= imageView.minimumScale + 0.01f) {
-
                 if (e1 == null || e2 == null) return false
                 val diffX = e2.x - e1.x
-
                 if (Math.abs(velocityX) > SWIPE_THRESHOLD_VELOCITY &&
                     Math.abs(diffX) > SWIPE_MIN_DISTANCE_FLING &&
                     Math.abs(velocityX) > Math.abs(velocityY * 1.5) // Ensure more horizontal
@@ -420,7 +462,7 @@ class PreviewDialogFragment : DialogFragment() {
                 return@use stringBuilder.toString().trim()
             }
         } catch (e: Exception) {
-            Log.e("PreviewDialogFragment", "Error reading EXIF data for $uri", e)
+            Log.e("PreviewDialogFragment", "Error loading EXIF for $uri", e)
             null
         }
     }
