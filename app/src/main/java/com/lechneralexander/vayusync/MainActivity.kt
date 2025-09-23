@@ -946,8 +946,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             val last = lm.findLastVisibleItemPosition().coerceAtLeast(first)
             for (pos in first..last) {
                 if (pos < images.size) { // Ensure index is within bounds
-                    val holder = recyclerView.findViewHolderForAdapterPosition(pos) as? ViewHolder ?: continue
-                    onBindViewHolder(holder, pos)
+                    notifyItemChanged(pos)
                 }
             }
         }
@@ -1087,9 +1086,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             private fun loadImage(image: FileInfo) {
-                loadThumbnail(image.uri)
                 this@MainActivity.lifecycleScope.launch {
-                    loadImageFromDiskCacheIfAvailable(image.uri)
+                    if (!loadImageFromDiskCacheIfAvailable(image.uri)) {
+                        loadThumbnail(image.uri)
+                    }
                 }
             }
 
@@ -1139,11 +1139,17 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     listener(
                         onSuccess = { _, metadata ->
                             Log.i("MainActivity", "Storing bitmap to cache for: $imageUri")
-                            if (imageView.tag == imageUri) {
-                                val drawable = metadata.drawable
-                                val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return@listener
 
+                            if (imageView.tag == imageUri) {
                                 itemView.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+                                    val cachedFile = CacheHelper.getCachedFile(getDiskCache(), imageUri)
+                                    if (cachedFile?.exists() == true) {
+                                        return@launch
+                                    }
+
+                                    val drawable = metadata.drawable
+                                    val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return@launch
+
                                     CacheHelper.saveBitmapToCache(
                                         this@MainActivity,
                                         imageUri,
