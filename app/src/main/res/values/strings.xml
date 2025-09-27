@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">VayuSync</string>
+    <string name="copy_channel_name">VayuSync</string>
+    <string name="copy_channel_description">Synching files</string>
 </resources>

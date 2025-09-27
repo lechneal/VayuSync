@@ -46,6 +46,7 @@ import coil.request.Parameters
 import coil.size.ViewSizeResolver
 import com.lechneralexander.vayusync.cache.CacheHelper
 import com.lechneralexander.vayusync.copy.ContentResolverFileCopier
+import com.lechneralexander.vayusync.copy.CopyService
 import com.lechneralexander.vayusync.copy.CopyViewModel
 import com.lechneralexander.vayusync.copy.ImageToCopy
 import com.lechneralexander.vayusync.extensions.formatBytes
@@ -85,7 +86,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         private const val PAYLOAD_INFO_VISIBILITY_CHANGED = "PAYLOAD_INFO_VISIBILITY_CHANGED"
         private const val PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED = "PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED"
-        //TODO PAYLOAD for selection
+        private const val PAYLOAD_SELECTION_CHANGED = "PAYLOAD_SELECTION_CHANGED"
 
         private const val MIME_TYPE_MENU_ITEM_GROUP_ID = 1001 // Unique group ID
         private const val MIME_TYPE_MENU_ITEM_ID_OFFSET = 10000 // Start IDs for MIME types
@@ -115,7 +116,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     // -- copy
     private lateinit var fileCopier: ContentResolverFileCopier
-    private lateinit var copyViewModel: CopyViewModel
     private lateinit var copyProgressContainer: LinearLayout
     private lateinit var copyProgressBar: ProgressBar
     private lateinit var etaText: TextView
@@ -132,7 +132,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     // To manage the contextual action mode
     private var actionMode: ActionMode? = null
 
-    // Added for selection history
+    // Add view models
+    private val copyViewModel: CopyViewModel by viewModels()
     private val selectionViewModel: SelectionViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -193,7 +194,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             requestPermissions()
         }
 
-
         //Observe copy progress
         copyProgressContainer = findViewById(R.id.copyProgressContainer)
         copyProgressBar = findViewById(R.id.copyProgressBar)
@@ -204,27 +204,21 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         resumeButton = findViewById(R.id.resumeButton)
 
         fileCopier = ContentResolverFileCopier(contentResolver)
-        copyViewModel = CopyViewModel(fileCopier)
 
         cancelCopyButton.setOnClickListener {
-            showCopyCancelConfirmationDialog {
-                copyViewModel.cancelCopy()
-                Toast.makeText(this, "Copy cancelled", Toast.LENGTH_SHORT).show()
-                copyProgressContainer.visibility = View.GONE
-                refreshCopyStatus()
-                actionMode?.finish()
-            }
+            CopyService.cancelRequest(this)
         }
         pauseButton.setOnClickListener {
-            copyViewModel.pauseCopy()
+            CopyService.pauseCopy(this)
         }
         resumeButton.setOnClickListener {
-            copyViewModel.resumeCopy()
+            CopyService.resumeCopy(this)
         }
 
         lifecycleScope.launch {
-            copyViewModel.getProgress().collectLatest { progress ->
+            copyViewModel.progress.collectLatest { progress ->
                 if (progress.completed) {
+                    refreshCopyStatus()
                     Toast.makeText(this@MainActivity, "Copied all files!", Toast.LENGTH_LONG).show()
                     copyProgressContainer.visibility = View.GONE
                     return@collectLatest
@@ -243,10 +237,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     progress.copiedBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
                 etaText.text =
-                    if (progress.etaSeconds >= 0) "${progress.etaSeconds.formatDuration()} remaining"
+                    if (progress.etaSeconds > 0) "${progress.etaSeconds.formatDuration()} remaining"
                     else "Calculating..."
                 statusText.text =
-                    "${progress.copiedBytes.formatBytes()}/${progress.totalBytes.formatBytes()} bytes (${
+                    "${progress.copiedBytes.formatBytes()} / ${progress.totalBytes.formatBytes()} (${
                         progress.speed.toLong().formatBytes()
                     }/s)"
 
@@ -254,13 +248,22 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
         }
         lifecycleScope.launch {
-            copyViewModel.getCopiedImage().collect { copiedImageInfo ->
-                copiedImageInfo.copyStatus = CopyStatus.COPIED
+            copyViewModel.copiedImage.collect { copiedImageInfo ->
                 alreadyCopiedImages.add(copiedImageInfo.fileName)
 
                 val position = shownFileInfos.indexOfFirst { it.uri == copiedImageInfo.uri }
                 if (position != -1) {
-                    adapter.notifyItemChanged(position)
+                    adapter.notifyItemChanged(position, PAYLOAD_SELECTION_CHANGED)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            copyViewModel.activeCopyQueue.collect { currentQueue ->
+                currentQueue.forEach { queuedUri ->
+                    val position = shownFileInfos.indexOfFirst { it.uri == queuedUri }
+                    if (position != -1) {
+                        adapter.notifyItemChanged(position, PAYLOAD_SELECTION_CHANGED)
+                    }
                 }
             }
         }
@@ -284,16 +287,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     private fun refreshCopyStatus() {
-        shownFileInfos.forEachIndexed { index, image ->
-            val newStatus = if (alreadyCopiedImages.contains(image.fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
-            if (image.copyStatus != newStatus) {
-                image.copyStatus = newStatus
-                adapter.notifyItemChanged(index)
-            }
-        }
-        allFileInfos.forEach {
-            it.copyStatus = if (alreadyCopiedImages.contains(it.fileName)) CopyStatus.COPIED else CopyStatus.NOT_COPIED
-        }
+        adapter.notifyItemRangeChanged(0, shownFileInfos.size, PAYLOAD_SELECTION_CHANGED)
     }
 
     private fun saveActiveMimeTypeFilters() {
@@ -640,17 +634,19 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private fun checkPermissions(): Boolean {
         // These are still needed to query MediaStore
-        return ContextCompat.checkSelfPermission(
-            this, Manifest.permission.READ_MEDIA_IMAGES
-        ) == PackageManager.PERMISSION_GRANTED && ContextCompat.checkSelfPermission(
-            this, Manifest.permission.READ_MEDIA_VIDEO
-        ) == PackageManager.PERMISSION_GRANTED
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun requestPermissions() {
         ActivityCompat.requestPermissions(
             this,
-            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO),
+            arrayOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.POST_NOTIFICATIONS
+            ),
             PERMISSION_REQUEST_CODE
         )
     }
@@ -724,8 +720,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                                     fileSize,
                                     mimeType,
                                     lastModified,
-                                    Orientation.UNDEFINED,
-                                    CopyStatus.LOADING
+                                    Orientation.UNDEFINED
                                 )
                             )
                         }
@@ -862,9 +857,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             allAffectedUris.forEach { uriToNotify ->
                 val index = images.indexOfFirst { it.uri == uriToNotify }
                 if (index != -1) {
-                    notifyItemChanged(index)
+                    notifyItemChanged(index, PAYLOAD_SELECTION_CHANGED)
                 }
             }
+            updateActionModeTitle()
         }
 
 
@@ -874,7 +870,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         fun toggleSelection(position: Int) {
             selectionViewModel.toggleAndRecordSelection(getImageInfo(position).uri)
-            notifyItemChanged(position)
+            notifyItemChanged(position, PAYLOAD_SELECTION_CHANGED)
         }
 
         fun clearSelections() {
@@ -883,7 +879,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             val previouslySelectedIndexes = selectedItems.mapNotNull { images.indexOf(it) }
             selectedItems.clear()
             previouslySelectedIndexes.forEach { index ->
-                 if (index != -1) notifyItemChanged(index)
+                 if (index != -1) notifyItemChanged(index, PAYLOAD_SELECTION_CHANGED)
             }
             selectionViewModel.recordSelectionChange(getSelectedUris()) // Notify MainActivity
         }
@@ -893,7 +889,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
             selectedItems.clear()
             selectedItems.addAll(images)
-            notifyItemRangeChanged(0, images.size)
+            notifyItemRangeChanged(0, images.size, PAYLOAD_SELECTION_CHANGED)
             selectionViewModel.recordSelectionChange(getSelectedUris()) // Notify MainActivity
         }
 
@@ -909,6 +905,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 holder.loadImageInfoOverlay(imageInfo)
             } else if (payloads.contains(PAYLOAD_MEDIA_TYPE_ICON_VISIBILITY_CHANGED)) {
                 holder.loadMediaTypeIcon(imageInfo)
+            } else if (payloads.contains(PAYLOAD_SELECTION_CHANGED)) {
+                holder.loadSelectionBadge(imageInfo)
             } else {
                 super.onBindViewHolder(holder, position, payloads)
             }
@@ -917,8 +915,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         // Ensure the standard onBindViewHolder calls the full bind
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val imageInfo = getImageInfo(position)
-            val isSelected = selectedItems.contains(imageInfo)
-            holder.bind(imageInfo, isSelected)
+            holder.bind(imageInfo)
         }
 
         override fun onViewRecycled(holder: ViewHolder) {
@@ -989,12 +986,12 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 this.imageView.dispose();
             }
 
-            fun bind(fileInfo: FileInfo, isSelected: Boolean) {
+            fun bind(fileInfo: FileInfo) {
                 imageView.tag = fileInfo.uri // Tag to verify in listeners
 
                 loadImage(fileInfo)
                 loadMediaTypeIcon(fileInfo)
-                loadSelectionBadge(fileInfo, isSelected)
+                loadSelectionBadge(fileInfo)
                 loadImageInfoOverlay(fileInfo)
             }
 
@@ -1010,25 +1007,24 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 }
             }
 
-            private fun loadSelectionBadge(
-                fileInfo: FileInfo,
-                isSelected: Boolean
+            fun loadSelectionBadge(
+                fileInfo: FileInfo
             ) {
                 when {
-                    isSelected -> {
+                    selectedItems.contains(fileInfo) -> {
                         selectionBadge.setImageResource(R.drawable.ic_check_circle)
                         selectionBadge.visibility = View.VISIBLE
                         selectionBadge.alpha = 1f
                     }
-                    fileInfo.copyStatus == CopyStatus.COPIED -> {
+                    copyViewModel.activeCopyQueue.value.contains(fileInfo.uri) -> {
+                        selectionBadge.setImageResource(R.drawable.ic_image_loading)
+                        selectionBadge.visibility = View.VISIBLE
+                        selectionBadge.alpha = 1f
+                    }
+                    alreadyCopiedImages.contains(fileInfo.fileName) -> {
                         selectionBadge.setImageResource(R.drawable.ic_check_circle)
                         selectionBadge.visibility = View.VISIBLE
                         selectionBadge.alpha = 0.5f
-                    }
-                    fileInfo.copyStatus == CopyStatus.COPYING -> {
-                        selectionBadge.setImageResource(R.drawable.ic_image_loading) // Consider a specific copying icon
-                        selectionBadge.visibility = View.VISIBLE
-                        selectionBadge.alpha = 1f
                     }
                     else -> {
                         selectionBadge.visibility = View.GONE
@@ -1038,10 +1034,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
             private fun showPreview(position: Int) {
                 val dialog = PreviewDialogFragment.newInstance(
-                    shownFileInfos.map(FileInfo::uri).toList(),
+                    shownFileInfos.toList(),
                     position
                 )
                 dialog.show(this@MainActivity.supportFragmentManager, "preview")
+                dialog.setAlreadyCopiedFilesGetter {alreadyCopiedImages}
                 this@MainActivity.supportFragmentManager.setFragmentResultListener(
                     "preview_closed",
                     this@MainActivity
@@ -1190,10 +1187,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private fun copyFilesTo(images: List<FileInfo>, destinationFolder: Uri) {
         val imagesToCopy = images.map {
-            it.copyStatus = CopyStatus.COPYING
             ImageToCopy(it, destinationFolder)
         }
-        copyViewModel.enqueueFiles(imagesToCopy)
+        CopyService.startToCopy(this, imagesToCopy)
         adapter.clearSelections()
         updateActionModeTitle()
     }
@@ -1217,8 +1213,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     }
 
     private fun updateHistoryNavigationButtons(menu: Menu?) {
-        menu?.findItem(R.id.action_undo)?.isEnabled = selectionViewModel.canUndo()
-        menu?.findItem(R.id.action_redo)?.isEnabled = selectionViewModel.canRedo()
+        menu?.findItem(R.id.action_undo)?.isVisible = selectionViewModel.canUndo()
+        menu?.findItem(R.id.action_redo)?.isVisible = selectionViewModel.canRedo()
     }
 
     override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
@@ -1257,17 +1253,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 copyFilesTo(adapter.getSelectedItems(), destinationFolder)
             }
             .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun showCopyCancelConfirmationDialog(confirmationCallback: () -> Unit) {
-        AlertDialog.Builder(this)
-            .setTitle("Cancel Copy?")
-            .setMessage("This will stop copying the remaining files.")
-            .setPositiveButton("Cancel Copy") { _, _ ->
-                confirmationCallback()
-            }
-            .setNegativeButton("Keep Copying", null)
             .show()
     }
 

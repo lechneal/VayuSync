@@ -40,9 +40,9 @@
             android:layout_height="24dp"
             android:layout_gravity="top|end"
             android:layout_margin="8dp"
-            android:background="@drawable/badge_background"
             android:src="@drawable/ic_check_circle"
-            android:visibility="gone"
-            app:tint="?attr/colorOnPrimary" />
+            android:background="@drawable/badge_background"
+            app:tint="?attr/colorOnPrimary"
+            android:visibility="gone" />
     </FrameLayout>
 </FrameLayout>

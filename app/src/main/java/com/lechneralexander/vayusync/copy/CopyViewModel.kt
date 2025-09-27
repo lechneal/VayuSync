@@ -1,7 +1,15 @@
 package com.lechneralexander.vayusync.copy
 
+import android.app.Application
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.net.Uri
-import androidx.lifecycle.ViewModel
+import android.os.IBinder
+import android.os.Parcelable
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lechneralexander.vayusync.FileInfo
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -9,10 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicLong
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.roundToInt
+import kotlinx.parcelize.Parcelize
 
 data class CopyProgress(
     val copiedBytes: Long,
@@ -23,125 +28,78 @@ data class CopyProgress(
     val paused: Boolean,
     val completed: Boolean,
 )
+@Parcelize
 data class ImageToCopy(
     val info: FileInfo,
     val destinationFolder: Uri
-)
+) : Parcelable
 
 class CopyViewModel(
-    private val fileCopier: FileCopier
-) : ViewModel() {
-    private val progress = MutableStateFlow(CopyProgress(0, 0, 0, 0, 0.0, false, false))
-    private val copiedImage = MutableSharedFlow<FileInfo>(extraBufferCapacity = 10)
+    private val application: Application
+) : AndroidViewModel(application) {
+    private val _progress = MutableStateFlow(CopyProgress(0, 0, 0, 0, 0.0, false, false))
+    val progress = _progress.asStateFlow()
 
-    private val queue = ConcurrentLinkedQueue<ImageToCopy>()
-    private val totalBytes = AtomicLong(0)
-    private val copiedBytes = AtomicLong(0)
+    private val _copiedImage = MutableSharedFlow<FileInfo>(extraBufferCapacity = 10)
+    val copiedImage = _copiedImage.asSharedFlow()
 
-    @Volatile
-    private var isCopying = false
+    private val _activeCopyQueue = MutableStateFlow<List<Uri>>(emptyList()) // Or List<Uri>
+    val activeCopyQueue = _activeCopyQueue.asStateFlow()
 
-    @Volatile
-    private var isPaused = false
+    private var copyService: CopyService? = null
+    private var isBound = false
 
-    @Volatile
-    private var isCancelled = false
-
-    @Volatile
-    private var startTime = 0L
-
-    @Volatile
-    private var activeCopyMillis = 0L
-
-    @Volatile
-    private var lastResumeTime = 0L
-
-    fun enqueueFiles(images: List<ImageToCopy>) {
-        images.forEach(queue::offer)
-        totalBytes.addAndGet(images.sumOf { it.info.fileSize })
-
-        if (!isCopying) {
-            startCopyLoop()
-        }
-    }
-
-    fun getProgress() = progress.asStateFlow()
-
-    fun getCopiedImage() = copiedImage.asSharedFlow()
-
-    private fun startCopyLoop() {
-        isCopying = true
-        isCancelled = false
-        isPaused = false
-
-        startTime = System.currentTimeMillis()
-        lastResumeTime = startTime
-        activeCopyMillis = 0L
-
-        totalBytes.set(queue.sumOf {it.info.fileSize})
-        copiedBytes.set(0)
-        progress.value = CopyProgress(0, totalBytes.get(), 0, 0, 0.0, false, completed = false)
-
-        viewModelScope.launch {
-            while (isCopying) {
-                val image = queue.poll() ?: break
-                try {
-                    fileCopier.copy(
-                        image.info,
-                        image.destinationFolder,
-                        this@CopyViewModel::updateProgress,
-                        { isPaused },
-                        { isCancelled }
-                    )
-                } catch (_: CancellationException) {
-                    return@launch
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(className: ComponentName, service: IBinder) {
+            Log.d("CopyViewModel", "Service Connected") // <--- ADD THIS LOG
+            val binder = service as CopyService.LocalBinder
+            copyService = binder.getService()
+            isBound = true
+            viewModelScope.launch {
+                copyService?.progressFlow?.collect {
+                    _progress.value = it
                 }
-                copiedBytes.addAndGet(image.info.fileSize)
-                copiedImage.emit(image.info)
             }
-            isCopying = false
-            progress.value = progress.value.copy(completed = true)
+            viewModelScope.launch {
+                copyService?.copiedImageFlow?.collect {
+                    _copiedImage.tryEmit(it)
+                }
+            }
+            viewModelScope.launch {
+                copyService?.activeCopyQueueFlow?.collect {
+                    _activeCopyQueue.value = it
+                }
+            }
+        }
+
+        override fun onServiceDisconnected(arg0: ComponentName) {
+            Log.d("CopyViewModel", "Service Disconnected") // <--- ADD THIS LOG
+            isBound = false
+            copyService = null
         }
     }
 
-    private fun updateProgress(copiedCurrentFile: Long) {
-        val totalBytesCopied = copiedBytes.get() + copiedCurrentFile
-
-        val activeMillis = if (!isPaused) {
-            activeCopyMillis + (System.currentTimeMillis() - lastResumeTime)
-        } else {
-            activeCopyMillis
-        }
-
-        val elapsedSec = activeMillis / 1000.0
-        val speed = if (elapsedSec > 0) totalBytesCopied / elapsedSec else 0.0
-        val remainingBytes = totalBytes.get() - totalBytesCopied
-        val eta = if (speed > 0) (remainingBytes / speed).roundToInt() else 0
-
-        progress.value = CopyProgress(totalBytesCopied, totalBytes.get(), elapsedSec.toInt(),eta, speed,isPaused, false)
+    init {
+        bindToService()
     }
 
-    fun pauseCopy(): Unit {
-        if (!isPaused) {
-            activeCopyMillis += (System.currentTimeMillis() - lastResumeTime)
-            isPaused = true
+    private fun bindToService() {
+        if (!isBound && copyService == null) {
+            Log.d("CopyViewModel", "Attempting to bind to CopyService")
+            Intent(application, CopyService::class.java).also { intent ->
+                // Context.BIND_AUTO_CREATE will create the service if it's not already running.
+                // This is important if the ViewModel might be created when the service isn't active yet
+                // but you expect it to become active (e.g., due to a pending copy from a previous session
+                // if you implement persistence later).
+                application.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+            }
         }
-        progress.value = progress.value.copy(paused = isPaused)
     }
 
-    fun resumeCopy() {
-        if (isPaused) {
-            lastResumeTime = System.currentTimeMillis()
-            isPaused = false
+    override fun onCleared() {
+        super.onCleared()
+        if (isBound) {
+            application.unbindService(serviceConnection)
         }
-        progress.value = progress.value.copy(paused = isPaused)
-    }
-
-    fun cancelCopy() {
-        isCancelled = true
-        isCopying = false
-        isPaused = false
-
-        queue.clear()
     }
 }

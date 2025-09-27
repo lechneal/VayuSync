@@ -61,7 +61,7 @@ class ContentResolverFileCopier(
                 }
             }
         }
-    }
+    }   
 
     private fun getDestinationUri(image: FileInfo, destinationTreeUri: Uri): Uri? {
         val docId = DocumentsContract.getTreeDocumentId(destinationTreeUri)

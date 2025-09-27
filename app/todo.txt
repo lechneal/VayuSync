@@ -1,24 +1,20 @@
 Major:
 - Advanced copy features
-    - [huge] Copy while app in background = add foreground service + android notification
-    - Store state for crash, and pickup upon restart
-- google suggestions
-    - enable app optimisation https://developer.android.com/topic/performance/app-optimization/enable-app-optimization#decode-stack-trace
-- image preview.
-    - show copying/copied information on preview fragment
+    - Be able to repeat failed copies
+- image preview
     - store in disk cache after full image / prev/next is loaded
 - add initial walkthrough (TapTargetView?)
 - features
-    - hide forward/backward selection button, if deactivated
     - add clear selection history button in settings
     - orientation: optimize it, only load if checkbox is active, do only load on demand (and cancel job), do not load for videos
 - improve design
+    - show total files that are copied
+    - same colors for selection buttons on preview page
     - hide source/destination after setting? Move to menu?
     - different button color or text if folder not selected
     - add icons to buttons
     - show loading spinner on thumbnail while high res is loading (as raw is taking long)
     - show loading spinner on full preview until full image is loaded
-    - rethink EXIF data (only show some, on click show next?)
     - different icon for already copied (e.g. save icon)
     - use icon as loading spinner
     - lighter placeholder images / reuse icon?
@@ -102,6 +98,7 @@ Done:
     - fix selection order, copy in the order of items being selected
     - when clicking on video prev/next load prev/next file
 - image preview
+    - show copying/copied information on preview fragment
     - get rid of flicker when using selection history (caused by loadImageFromDiskCacheIfAvailable, maybe because of IO thread?)
     - Allow the user to select from the preview page.
     - also allow moving to next/prev image
@@ -111,4 +108,10 @@ Done:
 - features
     - video navigation: if clicking prev/next load prev/next file
 - Advanced copy features
+    - Store state for crash, and pickup upon restart
+    - [huge] Copy while app in background = add foreground service + android notification
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection
+- google suggestions
+    - enable app optimisation https://developer.android.com/topic/performance/app-optimization/enable-app-optimization#decode-stack-trace
+- features
+    - hide forward/backward selection button, if deactivated

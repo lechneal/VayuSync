@@ -26,19 +26,23 @@ import coil.request.ImageRequest
 import com.github.chrisbanes.photoview.OnSingleFlingListener
 import com.github.chrisbanes.photoview.PhotoView
 import com.lechneralexander.vayusync.cache.CacheHelper
+import com.lechneralexander.vayusync.copy.CopyViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DecimalFormat
+import java.util.function.Supplier
 import kotlin.math.roundToInt
 
 class PreviewDialogFragment : DialogFragment() {
     private var currentPosition: Int = 0
-    private lateinit var imageUris: List<Uri>
+    private lateinit var files: List<FileInfo>
     private lateinit var gestureDetector: GestureDetector // For VideoView gestures
+    private lateinit var alreadyCopiedFilesGetter: Supplier<Set<String>>
     private val preloadDisposables = mutableListOf<Disposable>()
 
     private lateinit var selectionViewModel: SelectionViewModel
+    private lateinit var copyViewModel: CopyViewModel
 
     private lateinit var previewSelectionBadge: ImageView
 
@@ -46,10 +50,10 @@ class PreviewDialogFragment : DialogFragment() {
         private const val SWIPE_THRESHOLD_VELOCITY = 200
         private const val SWIPE_MIN_DISTANCE_FLING = 120
 
-        fun newInstance(uris: List<Uri>, position: Int): PreviewDialogFragment {
+        fun newInstance(files: List<FileInfo>, position: Int): PreviewDialogFragment {
             val fragment = PreviewDialogFragment()
             val args = Bundle()
-            args.putParcelableArrayList("uris", ArrayList(uris))
+            args.putParcelableArrayList("files", ArrayList(files))
             args.putInt("position", position)
             fragment.arguments = args
             return fragment
@@ -72,18 +76,19 @@ class PreviewDialogFragment : DialogFragment() {
         super.onViewCreated(view, savedInstanceState)
 
         selectionViewModel = ViewModelProvider(requireActivity()).get(SelectionViewModel::class.java)
+        copyViewModel = ViewModelProvider(requireActivity()).get(CopyViewModel::class.java)
         previewSelectionBadge = view.findViewById(R.id.previewSelectionBadge)
 
-        val allUrisArg = arguments?.getParcelableArrayList("uris", Uri::class.java)
+        val filesArg = arguments?.getParcelableArrayList("files", FileInfo::class.java)
         val currentPositionArg = arguments?.getInt("position", 0) ?: 0
-        if (allUrisArg == null || allUrisArg.isEmpty()) {
+        if (filesArg == null || filesArg.isEmpty()) {
             Log.e("PreviewDialogFragment", "No URIs provided or list is empty.")
             dismissAllowingStateLoss()
             return
         }
 
-        imageUris = allUrisArg
-        currentPosition = if (currentPositionArg >= 0 && currentPositionArg < imageUris.size) {
+        files = filesArg
+        currentPosition = if (currentPositionArg >= 0 && currentPositionArg < files.size) {
             currentPositionArg
         } else {
             Log.w("PreviewDialogFragment", "Invalid position $currentPositionArg, defaulting to 0.")
@@ -95,7 +100,7 @@ class PreviewDialogFragment : DialogFragment() {
         gestureDetector = GestureDetector(requireContext(), videoGestureListener)
 
         // Load the initial image/video
-        loadFile(imageUris[currentPosition])
+        loadFile(files[currentPosition])
 
         // Set OnClickListener for the badge
         previewSelectionBadge.setOnClickListener {
@@ -106,26 +111,45 @@ class PreviewDialogFragment : DialogFragment() {
         selectionViewModel.currentlySelectedUris.observe(viewLifecycleOwner) {
             updateSelection()
         }
+        lifecycleScope.launch {
+            copyViewModel.activeCopyQueue.collect {
+                updateSelection()
+            }
+        }
+        lifecycleScope.launch {
+            copyViewModel.copiedImage.collect {
+                updateSelection()
+            }
+        }
 
         // Fallback dismiss listener for the background
         view.setOnClickListener { dismiss() }
     }
 
     private fun toggleSelection() {
-        val currentUri = imageUris[currentPosition]
-        selectionViewModel.toggleAndRecordSelection(currentUri)
+        val file = files[currentPosition]
+        selectionViewModel.toggleAndRecordSelection(file.uri)
     }
 
     private fun updateSelection() {
-        val currentUri = imageUris[currentPosition]
-        val isSelected = selectionViewModel.getCurrentlySelectedUris().contains(currentUri)
+        val currentFile = files[currentPosition]
+        val isSelected = selectionViewModel.getCurrentlySelectedUris().contains(currentFile.uri)
         when {
             isSelected -> {
                 previewSelectionBadge.setImageResource(R.drawable.ic_check_circle)
                 previewSelectionBadge.visibility = View.VISIBLE
                 previewSelectionBadge.alpha = 1f
             }
-            //TODO show copied info
+            copyViewModel.activeCopyQueue.value.contains(currentFile.uri) -> {
+                previewSelectionBadge.setImageResource(R.drawable.ic_image_loading)
+                previewSelectionBadge.visibility = View.VISIBLE
+                previewSelectionBadge.alpha = 1f
+            }
+            getAlreadyCopiedImages().contains(currentFile.fileName) -> {
+                previewSelectionBadge.setImageResource(R.drawable.ic_check_circle)
+                previewSelectionBadge.visibility = View.VISIBLE
+                previewSelectionBadge.alpha = 0.5f
+            }
             else -> {
                 previewSelectionBadge.setImageResource(R.drawable.ic_check_empty)
                 previewSelectionBadge.visibility = View.VISIBLE
@@ -134,6 +158,13 @@ class PreviewDialogFragment : DialogFragment() {
         }
     }
 
+    fun setAlreadyCopiedFilesGetter(getter: Supplier<Set<String>>) {
+        this.alreadyCopiedFilesGetter = getter
+    }
+
+    private fun getAlreadyCopiedImages(): Set<String> {
+        return alreadyCopiedFilesGetter.get()
+    }
 
     override fun onDestroyView() {
         super.onDestroyView()
@@ -147,14 +178,14 @@ class PreviewDialogFragment : DialogFragment() {
         Log.d("Preview", "Cancelled all preload tasks.")
     }
 
-    private fun loadFile(uri: Uri) {
+    private fun loadFile(file: FileInfo) {
         val context = context ?: return
         val currentView = view ?: return
 
         // Cancel any ongoing preload tasks before loading new file
         cancelPreloadTasks()
 
-        val mime = context.contentResolver.getType(uri)
+        val mime = context.contentResolver.getType(file.uri)
         val imageView = currentView.findViewById<PhotoView>(R.id.fullImageView)
         val videoView = currentView.findViewById<VideoView>(R.id.fullVideoView)
         val exifView = currentView.findViewById<TextView>(R.id.fullExifInfo)
@@ -170,7 +201,7 @@ class PreviewDialogFragment : DialogFragment() {
         videoView.stopPlayback()
 
         if (mime?.startsWith("video/") == true) {
-            videoView.setVideoURI(uri)
+            videoView.setVideoURI(file.uri)
             videoView.visibility = View.VISIBLE
 
             val mediaController = MediaController(requireContext())
@@ -194,10 +225,10 @@ class PreviewDialogFragment : DialogFragment() {
                 return@setOnTouchListener false
             }
         } else {
-            Log.d("Preview", "Loading image: $uri, mime: $mime")
-            imageView.load(uri, getImageLoader()) {
-                memoryCacheKey(CacheHelper.getFullViewCacheKey(uri))
-                placeholderMemoryCacheKey(CacheHelper.getPreviewCacheKey(uri))
+            Log.d("Preview", "Loading image: ${file.uri}, mime: $mime")
+            imageView.load(file.uri, getImageLoader()) {
+                memoryCacheKey(CacheHelper.getFullViewCacheKey(file.uri))
+                placeholderMemoryCacheKey(CacheHelper.getPreviewCacheKey(file.uri))
                 placeholder(R.drawable.ic_image_loading)
                 error(R.drawable.ic_image_load_error)
                 crossfade(true)
@@ -206,7 +237,7 @@ class PreviewDialogFragment : DialogFragment() {
                         preloadAdjacentImages(currentPosition, 3, 1)
                     },
                     onError = { _, result ->
-                        Log.e("Preview", "Error loading image $uri: ${result.throwable}")
+                        Log.e("Preview", "Error loading image ${file.uri}: ${result.throwable}")
                     }
                 )
             }
@@ -221,7 +252,7 @@ class PreviewDialogFragment : DialogFragment() {
 
         // Load EXIF info asynchronously
         lifecycleScope.launch {
-            val exifInfoString = loadExifInfo(uri)
+            val exifInfoString = loadExifInfo(file.uri)
             exifView.text = exifInfoString ?: "No EXIF information!"
         }
     }
@@ -236,7 +267,7 @@ class PreviewDialogFragment : DialogFragment() {
         for (i in 1..countPre) {
             val prevIndex = currentIndex - i
             if (prevIndex >= 0) {
-                val prevUri = imageUris[prevIndex]
+                val prevUri = files[prevIndex].uri
                 if (context.contentResolver.getType(prevUri)?.startsWith("image/") == true) {
                     val request = ImageRequest.Builder(context)
                         .data(prevUri)
@@ -252,8 +283,8 @@ class PreviewDialogFragment : DialogFragment() {
         // Preload next images
         for (i in 1..countPost) {
             val nextIndex = currentIndex + i
-            if (nextIndex < imageUris.size) {
-                val nextUri = imageUris[nextIndex]
+            if (nextIndex < files.size) {
+                val nextUri = files[nextIndex].uri
                 if (context.contentResolver.getType(nextUri)?.startsWith("image/") == true) {
                     val request = ImageRequest.Builder(context)
                         .data(nextUri)
@@ -335,9 +366,9 @@ class PreviewDialogFragment : DialogFragment() {
     }
 
     private fun navigateToNextImage() {
-        if (currentPosition < imageUris.size - 1) {
+        if (currentPosition < files.size - 1) {
             currentPosition++
-            loadFile(imageUris[currentPosition])
+            loadFile(files[currentPosition])
         } else {
             Log.d("Preview", "Already at the last image.")
         }
@@ -346,7 +377,7 @@ class PreviewDialogFragment : DialogFragment() {
     private fun navigateToPreviousImage() {
         if (currentPosition > 0) {
             currentPosition--
-            loadFile(imageUris[currentPosition])
+            loadFile(files[currentPosition])
         } else {
             Log.d("Preview", "Already at the first image.")
         }
