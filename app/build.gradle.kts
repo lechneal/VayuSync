@@ -13,8 +13,8 @@ android {
         applicationId = "com.lechneralexander.vayusync"
         minSdk = 34
         targetSdk = 36
-        versionCode = 40
-        versionName = "1.39"
+        versionCode = 63
+        versionName = "1.62"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -27,6 +27,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
         }
     }
     compileOptions {

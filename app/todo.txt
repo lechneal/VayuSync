@@ -1,6 +1,6 @@
 Major:
 - Advanced copy features
-    - Be able to repeat failed copies
+    - Cleanup partially copied one when continuing. Store current one separately?
 - image preview
     - store in disk cache after full image / prev/next is loaded
 - add initial walkthrough (TapTargetView?)
@@ -8,6 +8,7 @@ Major:
     - add clear selection history button in settings
     - orientation: optimize it, only load if checkbox is active, do only load on demand (and cancel job), do not load for videos
 - improve design
+    - be able to use return on preview image
     - show total files that are copied
     - same colors for selection buttons on preview page
     - hide source/destination after setting? Move to menu?
@@ -108,6 +109,7 @@ Done:
 - features
     - video navigation: if clicking prev/next load prev/next file
 - Advanced copy features
+    - Be able to repeat failed copies
     - Store state for crash, and pickup upon restart
     - [huge] Copy while app in background = add foreground service + android notification
     - back/forward with selection: if deselecting all (e.g. going back) add support to restore previous selection

@@ -251,7 +251,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             copyViewModel.copiedImage.collect { copiedImageInfo ->
                 alreadyCopiedImages.add(copiedImageInfo.fileName)
 
-                val position = shownFileInfos.indexOfFirst { it.uri == copiedImageInfo.uri }
+                val position = shownFileInfos.indexOfFirst { it.uri.toString() == copiedImageInfo.uri }
                 if (position != -1) {
                     adapter.notifyItemChanged(position, PAYLOAD_SELECTION_CHANGED)
                 }
@@ -1187,9 +1187,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     private fun copyFilesTo(images: List<FileInfo>, destinationFolder: Uri) {
         val imagesToCopy = images.map {
-            ImageToCopy(it, destinationFolder)
+            ImageToCopy(it.uri.toString(),it.fileName, it.mimeType, it.fileSize, destinationFolder.toString())
         }
-        CopyService.startToCopy(this, imagesToCopy)
+        CopyService.startToCopy(this, ArrayList(imagesToCopy))
         adapter.clearSelections()
         updateActionModeTitle()
     }

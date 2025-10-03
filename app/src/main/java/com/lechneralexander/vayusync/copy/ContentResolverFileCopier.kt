@@ -3,7 +3,7 @@ package com.lechneralexander.vayusync.copy
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.DocumentsContract
-import com.lechneralexander.vayusync.FileInfo
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -11,8 +11,7 @@ import kotlin.coroutines.cancellation.CancellationException
 
 interface FileCopier {
     suspend fun copy(
-        image: FileInfo,
-        destinationFolder: Uri,
+        file: ImageToCopy,
         onProgress: (bytesCopied: Long) -> Unit,
         shouldPause: () -> Boolean,
         shouldCancel: () -> Boolean
@@ -25,15 +24,14 @@ class ContentResolverFileCopier(
     private val buffer = ByteArray(64 * 1024)
 
     override suspend fun copy(
-        image: FileInfo,
-        destinationFolder: Uri,
+        file: ImageToCopy,
         onProgress: (Long) -> Unit,
         shouldPause: () -> Boolean,
         shouldCancel: () -> Boolean
     ) {
         withContext(Dispatchers.IO) {
-            contentResolver.openInputStream(image.uri)?.use { input ->
-                val destinationUri = getDestinationUri(image, destinationFolder)!!
+            contentResolver.openInputStream(file.uri.toUri())?.use { input ->
+                val destinationUri = getDestinationUri(file)!!
                 contentResolver.openOutputStream(destinationUri)?.use { output ->
                     var read: Int
                     var totalCopied = 0L
@@ -63,7 +61,8 @@ class ContentResolverFileCopier(
         }
     }   
 
-    private fun getDestinationUri(image: FileInfo, destinationTreeUri: Uri): Uri? {
+    private fun getDestinationUri(image: ImageToCopy): Uri? {
+        val destinationTreeUri = image.destinationFolder.toUri()
         val docId = DocumentsContract.getTreeDocumentId(destinationTreeUri)
         val destinationFolderDocUri = DocumentsContract.buildDocumentUriUsingTree(destinationTreeUri, docId)
         val fileName = image.fileName ?: "file_${System.currentTimeMillis()}"

@@ -11,7 +11,6 @@ import android.os.Parcelable
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.lechneralexander.vayusync.FileInfo
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -30,8 +29,11 @@ data class CopyProgress(
 )
 @Parcelize
 data class ImageToCopy(
-    val info: FileInfo,
-    val destinationFolder: Uri
+    val uri: String,
+    val fileName: String,
+    val mimeType: String,
+    val fileSize: Long,
+    val destinationFolder: String
 ) : Parcelable
 
 class CopyViewModel(
@@ -40,7 +42,7 @@ class CopyViewModel(
     private val _progress = MutableStateFlow(CopyProgress(0, 0, 0, 0, 0.0, false, false))
     val progress = _progress.asStateFlow()
 
-    private val _copiedImage = MutableSharedFlow<FileInfo>(extraBufferCapacity = 10)
+    private val _copiedImage = MutableSharedFlow<ImageToCopy>(extraBufferCapacity = 10)
     val copiedImage = _copiedImage.asSharedFlow()
 
     private val _activeCopyQueue = MutableStateFlow<List<Uri>>(emptyList()) // Or List<Uri>
@@ -87,10 +89,6 @@ class CopyViewModel(
         if (!isBound && copyService == null) {
             Log.d("CopyViewModel", "Attempting to bind to CopyService")
             Intent(application, CopyService::class.java).also { intent ->
-                // Context.BIND_AUTO_CREATE will create the service if it's not already running.
-                // This is important if the ViewModel might be created when the service isn't active yet
-                // but you expect it to become active (e.g., due to a pending copy from a previous session
-                // if you implement persistence later).
                 application.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
             }
         }
