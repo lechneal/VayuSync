@@ -4,12 +4,14 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.cancellation.CancellationException
 
 class CacheHelper {
     companion object {
@@ -35,39 +37,43 @@ class CacheHelper {
             getDiskCacheKey(uri)?.let { cachedKeys.remove(it) }
         }
 
-        suspend fun saveBitmapToCache(context: Context, uri: Uri, bitmap: Bitmap): File? = withContext(
-            Dispatchers.IO) {
+        suspend fun saveBitmapToCache(
+            context: Context,
+            uri: Uri,
+            bitmap: Bitmap,
+            dispatcher: CoroutineDispatcher = Dispatchers.IO
+        ): File? = withContext(dispatcher) {
+            val key = getDiskCacheKey(uri)
+            if (key == null) {
+                Log.w("CacheHelper", "No valid key for uri: $uri")
+                return@withContext null
+            }
+
+            val cacheDir = File(context.cacheDir, "image_cache")
+            if (!cacheDir.exists()) cacheDir.mkdirs()
+
+            val file = File(cacheDir, key)
+            if (file.exists()) {
+                Log.d("CacheHelper", "File already exists: $file")
+                cachedKeys.add(key)
+                return@withContext file
+            }
+
+            val tmpFile = File(cacheDir, "$key.tmp")
             try {
-                if (!isActive) {
-                    return@withContext null
-                }
-
-                val cacheDir = File(context.cacheDir, "image_cache")
-                if (!cacheDir.exists()) cacheDir.mkdirs()
-
-                val key = getDiskCacheKey(uri)
-                if (key == null) {
-                    Log.w("CacheHelper", "No valid key: $key")
-                    return@withContext null
-                }
-
-                val file = File(cacheDir, key)
-                if (file.exists()) {
-                    Log.d("CacheHelper", "File already exists: $file")
-                    cachedKeys.add(key)
-                    return@withContext file
-                }
-
-                FileOutputStream(file).use { out ->
+                FileOutputStream(tmpFile).use { out ->
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                 }
-
+                if (!isActive || !tmpFile.renameTo(file)) {
+                    tmpFile.delete()
+                    return@withContext null
+                }
                 cachedKeys.add(key)
                 Log.i("CacheHelper", "Saved bitmap to cache: $file, size = ${file.length()} ${bitmap.height}x${bitmap.width}")
                 file
             } catch (e: Exception) {
-                e.printStackTrace()
-                null
+                tmpFile.delete()
+                throw e
             }
         }
 

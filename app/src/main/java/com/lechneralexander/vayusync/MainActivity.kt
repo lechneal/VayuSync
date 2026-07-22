@@ -963,6 +963,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private val infoFileSizeAndDate: TextView = itemView.findViewById(R.id.infoFileSizeAndDate)
             // Jobs
             private var debouncePreviewJob: Job? = null
+            private var saveCacheJob: Job? = null
 
             init {
                 itemView.setOnClickListener {
@@ -986,6 +987,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
             fun cancelPendingPreview() {
                 debouncePreviewJob?.cancel()
+                saveCacheJob?.cancel()
                 this.imageView.dispose();
             }
 
@@ -1160,24 +1162,25 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     dispatcher(getBackgroundImageDispatcher())
                     listener(
                         onSuccess = { _, metadata ->
+                            if (imageView.tag != imageUri) {
+                                return@listener
+                            }
+                            // Already on disk (in-memory index check, no IO on main thread).
+                            if (CacheHelper.isCached(imageUri)) {
+                                return@listener
+                            }
+
+                            val bitmap = (metadata.drawable as? BitmapDrawable)?.bitmap ?: return@listener
+
                             Log.i("MainActivity", "Storing bitmap to cache for: $imageUri")
-
-                            if (imageView.tag == imageUri) {
-                                itemView.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
-                                    val cachedFile = CacheHelper.getCachedFile(getDiskCache(), imageUri)
-                                    if (cachedFile?.exists() == true) {
-                                        return@launch
-                                    }
-
-                                    val drawable = metadata.drawable
-                                    val bitmap = (drawable as? BitmapDrawable)?.bitmap ?: return@launch
-
-                                    CacheHelper.saveBitmapToCache(
-                                        this@MainActivity,
-                                        imageUri,
-                                        bitmap
-                                    )
-                                }
+                            saveCacheJob?.cancel()
+                            saveCacheJob = itemView.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+                                CacheHelper.saveBitmapToCache(
+                                    this@MainActivity,
+                                    imageUri,
+                                    bitmap,
+                                    getBackgroundImageDispatcher()
+                                )
                             }
                         }
                     )
