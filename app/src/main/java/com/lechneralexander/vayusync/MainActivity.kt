@@ -62,7 +62,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -753,8 +752,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
         }
 
         scope.launch(Dispatchers.IO) {
+            val loadDiskCacheIndexJob = async { CacheHelper.loadCacheIndex(getDiskCache()) }
             val loadDestinationFilesJob = async { loadDestinationFiles(getSavedDestinationFolder()) }
             val loadSourceFilesJob = async { loadSourceFiles(folderUri) }
+            loadDiskCacheIndexJob.join()
             loadDestinationFilesJob.join()
             loadSourceFilesJob.join()
             refreshCopyStatus()
@@ -961,7 +962,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private val infoFileSizeAndDate: TextView = itemView.findViewById(R.id.infoFileSizeAndDate)
             // Jobs
             private var debouncePreviewJob: Job? = null
-            private var loadImageJob: Job? = null
 
             init {
                 itemView.setOnClickListener {
@@ -984,7 +984,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             fun cancelPendingPreview() {
-                loadImageJob?.cancel()
                 debouncePreviewJob?.cancel()
                 this.imageView.dispose();
             }
@@ -1086,17 +1085,38 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             private fun loadImage(image: FileInfo) {
-                loadImageJob?.cancel()
-                loadImageJob = this@MainActivity.lifecycleScope.launch {
-                    if (!loadImageFromDiskCacheIfAvailable(image.uri)) {
-                        loadThumbnail(image.uri)
-                    }
+                if (CacheHelper.isCached(image.uri)) {
+                    loadImageFromDiskCache(image.uri)
+                } else {
+                    loadThumbnail(image.uri)
+                }
+            }
+
+            private fun loadImageFromDiskCache(imageUri: Uri) {
+                val cachedFile = CacheHelper.getCachedFile(getDiskCache(), imageUri)
+                debouncePreviewJob?.cancel()
+                Log.d("MainActivity", "Loading image from disk cache: $cachedFile")
+                imageView.load(cachedFile, getImageLoader()) {
+                    memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))
+                    placeholder(R.drawable.ic_image_loading)
+                    error(R.drawable.ic_image_load_error)
+                    size(ViewSizeResolver(imageView))
+                    crossfade(true)
+                    listener(
+                        onError = { _, _ ->
+                            CacheHelper.invalidateCached(imageUri)
+                            if (imageView.tag == imageUri) {
+                                loadThumbnail(imageUri)
+                            }
+                        }
+                    )
                 }
             }
 
             private fun loadThumbnail(
                 imageUri: Uri
             ) {
+                Log.d("MainActivity", "Loading thumbnail for: $imageUri")
                 imageView.load(imageUri, getImageLoader()) {
                     memoryCacheKey(CacheHelper.getThumbnailCacheKey(imageUri))
                     placeholder(R.drawable.ic_image_loading)
@@ -1161,34 +1181,6 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                         }
                     )
                 }
-            }
-
-            private suspend fun loadImageFromDiskCacheIfAvailable(imageUri: Uri): Boolean {
-                val diskCache = getDiskCache()
-                val cachedFile = CacheHelper.getCachedFile(diskCache, imageUri)
-
-                val fileExists = withContext(Dispatchers.IO) { // Switch to IO thread for exists()
-                    cachedFile?.exists() == true
-                }
-
-                if (!currentCoroutineContext().isActive || imageView.tag != imageUri) {
-                    return true
-                }
-
-                if (fileExists) {
-                    cancelPendingPreview()
-                    Log.d("MainActivity", "Loading image from disk cache: $cachedFile")
-                    imageView.load(cachedFile, getImageLoader()) {
-                        memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))
-                        placeholder(R.drawable.ic_image_loading)
-                        error(R.drawable.ic_image_load_error)
-                        size(ViewSizeResolver(imageView))
-                        crossfade(true)
-                    }
-                    return true
-                }
-                Log.d("MainActivity", "No cached image found for: $imageUri")
-                return false
             }
         }
     }

@@ -9,9 +9,32 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.ConcurrentHashMap
 
 class CacheHelper {
     companion object {
+        private val cachedKeys: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        @Volatile
+        private var indexLoaded = false
+
+        suspend fun loadCacheIndex(diskCache: File) = withContext(Dispatchers.IO) {
+            if (indexLoaded) return@withContext
+            diskCache.list()?.let(cachedKeys::addAll)
+            indexLoaded = true
+            Log.d("CacheHelper", "Disk-cache index loaded: ${cachedKeys.size} entries")
+        }
+
+        // IO-free check
+        fun isCached(uri: Uri): Boolean {
+            val key = getDiskCacheKey(uri) ?: return false
+            return cachedKeys.contains(key)
+        }
+
+        fun invalidateCached(uri: Uri) {
+            getDiskCacheKey(uri)?.let { cachedKeys.remove(it) }
+        }
+
         suspend fun saveBitmapToCache(context: Context, uri: Uri, bitmap: Bitmap): File? = withContext(
             Dispatchers.IO) {
             try {
@@ -31,6 +54,7 @@ class CacheHelper {
                 val file = File(cacheDir, key)
                 if (file.exists()) {
                     Log.d("CacheHelper", "File already exists: $file")
+                    cachedKeys.add(key)
                     return@withContext file
                 }
 
@@ -38,6 +62,7 @@ class CacheHelper {
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                 }
 
+                cachedKeys.add(key)
                 Log.i("CacheHelper", "Saved bitmap to cache: $file, size = ${file.length()} ${bitmap.height}x${bitmap.width}")
                 file
             } catch (e: Exception) {
