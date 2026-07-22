@@ -62,6 +62,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -960,6 +961,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             private val infoFileSizeAndDate: TextView = itemView.findViewById(R.id.infoFileSizeAndDate)
             // Jobs
             private var debouncePreviewJob: Job? = null
+            private var loadImageJob: Job? = null
 
             init {
                 itemView.setOnClickListener {
@@ -982,6 +984,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             fun cancelPendingPreview() {
+                loadImageJob?.cancel()
                 debouncePreviewJob?.cancel()
                 this.imageView.dispose();
             }
@@ -1083,7 +1086,8 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             private fun loadImage(image: FileInfo) {
-                this@MainActivity.lifecycleScope.launch {
+                loadImageJob?.cancel()
+                loadImageJob = this@MainActivity.lifecycleScope.launch {
                     if (!loadImageFromDiskCacheIfAvailable(image.uri)) {
                         loadThumbnail(image.uri)
                     }
@@ -1165,6 +1169,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
                 val fileExists = withContext(Dispatchers.IO) { // Switch to IO thread for exists()
                     cachedFile?.exists() == true
+                }
+
+                if (!currentCoroutineContext().isActive || imageView.tag != imageUri) {
+                    return true
                 }
 
                 if (fileExists) {
