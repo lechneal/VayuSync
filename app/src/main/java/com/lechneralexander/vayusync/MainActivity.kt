@@ -54,6 +54,7 @@ import com.lechneralexander.vayusync.extensions.formatDuration
 import com.lechneralexander.vayusync.extensions.formatTimestamp
 import com.lechneralexander.vayusync.extensions.getImageOrientation
 import com.lechneralexander.vayusync.extensions.setTint
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1156,7 +1157,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                     error(R.drawable.ic_image_load_error)
                     size(ViewSizeResolver(imageView))
                     crossfade(true)
-
+                    dispatcher(getBackgroundImageDispatcher())
                     listener(
                         onSuccess = { _, metadata ->
                             Log.i("MainActivity", "Storing bitmap to cache for: $imageUri")
@@ -1267,6 +1268,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
     fun getDiskCache(): File {
         return (applicationContext as VayuApp).getDiskCache()
+    }
+
+    fun getBackgroundImageDispatcher(): CoroutineDispatcher {
+        return (applicationContext as VayuApp).backgroundImageDispatcher
     }
 }
 

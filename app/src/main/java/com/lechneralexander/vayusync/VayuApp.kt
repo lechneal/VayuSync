@@ -9,15 +9,23 @@ import coil.memory.MemoryCache
 import coil.util.DebugLogger
 import com.lechneralexander.vayusync.fetchers.ThumbnailFetcher
 import com.lechneralexander.vayusync.fetchers.VideoFrameFetcher
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 
 class VayuApp: Application() {
     companion object {
         const val COPY_NOTIFICATION_CHANNEL_ID = "copy_channel_id"
+
+        private const val BACKGROUND_IMAGE_PARALLELISM = 2
     }
 
     private val diskCacheName = "image_cache"
     private lateinit var imageLoader: ImageLoader
+
+    // low-priority dispatcher
+    val backgroundImageDispatcher: CoroutineDispatcher =
+        Dispatchers.IO.limitedParallelism(BACKGROUND_IMAGE_PARALLELISM)
 
     override fun onCreate() {
         super.onCreate()
