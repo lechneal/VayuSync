@@ -16,6 +16,10 @@ recyclerview = "1.4.0"
 appcompatVersion = "1.7.1"
 exifinterface = "1.4.1"
 gson = "2.13.2"
+robolectric = "4.14.1"
+mockk = "1.13.13"
+coroutinesTest = "1.8.1"
+truth = "1.4.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -40,6 +44,10 @@ recyclerview = { group = "androidx.recyclerview", name = "recyclerview", version
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompatVersion" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+truth = { module = "com.google.truth:truth", version.ref = "truth" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
