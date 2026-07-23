@@ -1002,8 +1002,15 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             }
 
             fun resumePreview(fileInfo: FileInfo) {
-                imageView.tag = fileInfo.uri
-                loadImage(fileInfo)
+                val uri = fileInfo.uri
+                imageView.tag = uri
+                debouncePreviewJob?.cancel()
+                // Prevent flicker in case the save-to-disk was cancelled
+                if (CacheHelper.isCached(uri)) {
+                    loadImageFromDiskCache(uri)
+                } else {
+                    loadPreview(uri)
+                }
             }
 
             fun bind(fileInfo: FileInfo) {
@@ -1116,6 +1123,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 Log.d("MainActivity", "Loading image from disk cache: $cachedFile")
                 imageView.load(cachedFile, getImageLoader()) {
                     memoryCacheKey(CacheHelper.getPreviewCacheKey(imageUri))
+                    placeholderMemoryCacheKey(CacheHelper.getThumbnailCacheKey(imageUri))
                     placeholder(R.drawable.ic_image_loading)
                     error(R.drawable.ic_image_load_error)
                     size(ViewSizeResolver(imageView))
