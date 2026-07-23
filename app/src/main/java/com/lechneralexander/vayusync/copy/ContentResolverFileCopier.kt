@@ -21,7 +21,6 @@ interface FileCopier {
 class ContentResolverFileCopier(
     private val contentResolver: ContentResolver
 ) : FileCopier {
-    private val buffer = ByteArray(64 * 1024)
 
     override suspend fun copy(
         file: ImageToCopy,
@@ -30,6 +29,7 @@ class ContentResolverFileCopier(
         shouldCancel: () -> Boolean
     ) {
         withContext(Dispatchers.IO) {
+            val buffer = ByteArray(64 * 1024)
             contentResolver.openInputStream(file.uri.toUri())?.use { input ->
                 val destinationUri = getDestinationUri(file)!!
                 contentResolver.openOutputStream(destinationUri)?.use { output ->

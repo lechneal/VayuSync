@@ -1,6 +1,7 @@
 package com.lechneralexander.vayusync.fetchers
 import android.content.ContentResolver
 import android.net.Uri
+import android.os.CancellationSignal
 import android.util.Size
 import androidx.core.graphics.drawable.toDrawable
 import coil.ImageLoader
@@ -9,6 +10,8 @@ import coil.fetch.DrawableResult
 import coil.fetch.FetchResult
 import coil.fetch.Fetcher
 import coil.request.Options
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 
 class ThumbnailFetcher(
     private val contentResolver: ContentResolver,
@@ -20,8 +23,19 @@ class ThumbnailFetcher(
         // Get the target size from the request's parameters.
         val targetSize = options.parameters.value("target_size") as? Int ?: 512
 
-        // Request a higher-res thumbnail from the system to get better quality.
-        val bitmap = contentResolver.loadThumbnail(data, Size(targetSize, targetSize), null)
+        // Wire a CancellationSignal to coroutine cancellation so the blocking
+        // system thumbnail generation is aborted the moment the request is cancelled.
+        val signal = CancellationSignal()
+        val cancellationHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) signal.cancel()
+        }
+
+        val bitmap = try {
+            // Request a higher-res thumbnail from the system to get better quality.
+            contentResolver.loadThumbnail(data, Size(targetSize, targetSize), signal)
+        } finally {
+            cancellationHandle?.dispose()
+        }
 
         return DrawableResult(
             drawable = bitmap.toDrawable(options.context.resources),

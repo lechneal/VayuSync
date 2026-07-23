@@ -10,6 +10,8 @@ import coil.fetch.FetchResult
 import coil.fetch.Fetcher
 import androidx.core.graphics.drawable.toDrawable
 import coil.request.Options
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 class VideoFrameFetcher(
     private val context: Context,
@@ -18,16 +20,22 @@ class VideoFrameFetcher(
 
     override suspend fun fetch(): FetchResult {
         val retriever = MediaMetadataRetriever()
-        retriever.setDataSource(context, uri)
+        try {
+            retriever.setDataSource(context, uri)
+            // Bail out before the (potentially expensive) decode if we were cancelled.
+            currentCoroutineContext().ensureActive()
 
-        val frame = retriever.getFrameAtIndex(5)
-        retriever.release()
+            val frame = retriever.getFrameAtIndex(5)
+                ?: throw IllegalStateException("Could not extract a video frame from $uri")
 
-        return DrawableResult(
-            drawable = frame!!.toDrawable(context.resources),
-            isSampled = false,
-            dataSource = DataSource.DISK
-        )
+            return DrawableResult(
+                drawable = frame.toDrawable(context.resources),
+                isSampled = false,
+                dataSource = DataSource.DISK
+            )
+        } finally {
+            retriever.release()
+        }
     }
 
     class Factory : Fetcher.Factory<Uri> {

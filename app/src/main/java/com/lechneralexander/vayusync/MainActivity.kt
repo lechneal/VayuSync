@@ -68,6 +68,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 
 class MainActivity : AppCompatActivity(), ActionMode.Callback {
@@ -106,7 +107,7 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
     // --- Use Uri instead of File ---
     private val allFileInfos = mutableListOf<FileInfo>()
     private val shownFileInfos = mutableListOf<FileInfo>()
-    private var alreadyCopiedImages = HashSet<String>()
+    private val alreadyCopiedImages: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     // mime filter
@@ -152,8 +153,10 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
 
         val savedCriterionName = prefs.getString(KEY_SORT_CRITERION, SortCriterion.FILENAME.toString())
         val savedOrderName = prefs.getString(KEY_SORT_ORDER, SortOrder.ASCENDING.toString())
-        currentSort.criterion = try { SortCriterion.valueOf(savedCriterionName!!) } finally { }
-        currentSort.order = try { SortOrder.valueOf(savedOrderName!!) } finally { }
+        currentSort.criterion = runCatching { SortCriterion.valueOf(savedCriterionName!!) }
+            .getOrDefault(SortCriterion.FILENAME)
+        currentSort.order = runCatching { SortOrder.valueOf(savedOrderName!!) }
+            .getOrDefault(SortOrder.ASCENDING)
 
         val savedFilters = prefs.getStringSet(KEY_ACTIVE_MIME_TYPE_FILTERS, emptySet())
         activeMimeTypeFilters.addAll(savedFilters ?: emptySet())
@@ -743,7 +746,9 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             return
         }
 
-        alreadyCopiedImages = listExistingFilenames(outputUri!!)
+        val existing = listExistingFilenames(outputUri)
+        alreadyCopiedImages.clear()
+        alreadyCopiedImages.addAll(existing)
     }
 
     private fun loadImages(folderUri: Uri) {
@@ -946,7 +951,12 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
             val last = lm.findLastVisibleItemPosition().coerceAtLeast(first)
             for (pos in first..last) {
                 if (pos < images.size) { // Ensure index is within bounds
-                    notifyItemChanged(pos)
+                    val holder = recyclerView.findViewHolderForAdapterPosition(pos) as? ViewHolder
+                    if (holder != null) {
+                        holder.resumePreview(images[pos])
+                    } else {
+                        notifyItemChanged(pos)
+                    }
                 }
             }
         }
@@ -989,6 +999,11 @@ class MainActivity : AppCompatActivity(), ActionMode.Callback {
                 debouncePreviewJob?.cancel()
                 saveCacheJob?.cancel()
                 this.imageView.dispose();
+            }
+
+            fun resumePreview(fileInfo: FileInfo) {
+                imageView.tag = fileInfo.uri
+                loadImage(fileInfo)
             }
 
             fun bind(fileInfo: FileInfo) {
